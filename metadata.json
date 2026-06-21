@@ -1,0 +1,6 @@
+{
+  "name": "OrçaFacil Pro",
+  "description": "Plataforma profissional de orçamentos, cubagem de madeira Huber e controle de vendas 100% offline.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
