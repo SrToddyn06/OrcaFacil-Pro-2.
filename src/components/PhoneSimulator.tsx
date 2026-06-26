@@ -6,7 +6,7 @@ import {
   Share2, FileDown, Clock, ArrowLeftRight, Settings, Send, 
   Info, Calculator, ShieldAlert, DollarSign, Check, ChevronRight,
   Database, RefreshCw, Smartphone, CheckSquare, ChevronLeft,
-  Activity, Zap, Cloud, CloudOff, Wifi, WifiOff
+  Activity, Zap, Cloud, CloudOff, Wifi, WifiOff, Edit
 } from 'lucide-react';
 import { Client, Product, Budget, BudgetItem, BudgetStatus, UnitType, TableUpdateResult } from '../types';
 import { INITIAL_PRODUCTS, INITIAL_CLIENTS, INITIAL_BUDGETS, DATABASE_SCHEMAS, SAMPLE_TXT_FILES } from '../data';
@@ -302,13 +302,23 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
   const [tableWidth, setTableWidth] = useState<number>(90);
   const [tableThickness, setTableThickness] = useState<number>(6);
   const [tableWoodType, setTableWoodType] = useState<string>('Eucalipto');
-  const [tableLegs, setTableLegs] = useState<'wood' | 'iron'>('iron');
+  const [tableLegs, setTableLegs] = useState<'wood' | 'iron' | 'x_wood'>('iron');
   const [tableFinish, setTableFinish] = useState<'varnish' | 'epoxy' | 'mineral_oil' | 'simple_varnish'>('varnish');
   const [tableLabor, setTableLabor] = useState<string>('450');
   const [tableMargin, setTableMargin] = useState<string>('30');
   const [tableBenches, setTableBenches] = useState<boolean>(false);
   const [tableCustomPrice, setTableCustomPrice] = useState<string>('');
-  const [calcSubTab, setCalcSubTab] = useState<'explanation' | 'new_measure' | 'porteiras' | 'mesas'>('explanation');
+  const [calcSubTab, setCalcSubTab] = useState<'explanation' | 'new_measure' | 'porteiras' | 'mesas'>('porteiras');
+  
+  // Products/Madeiras Tab States
+  const [productsSubTab, setProductsSubTab] = useState<'lista' | 'sob_medida'>('lista');
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [editProdName, setEditProdName] = useState('');
+  const [editProdCode, setEditProdCode] = useState('');
+  const [editProdUnit, setEditProdUnit] = useState<UnitType>('M');
+  const [editProdPrice, setEditProdPrice] = useState('');
+  const [editProdDesc, setEditProdDesc] = useState('');
   
   // Stress Test Suite States
   const [testRunning, setTestRunning] = useState<string | null>(null);
@@ -534,7 +544,7 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
     showAdmin: boolean;
   }[]>([]);
 
-  // Track state transitions automatically as a passive history logger and bind native device hardware buttons
+  // Track state transitions automatically as a passive history logger
   useEffect(() => {
     const currentConfig = {
       activeTab,
@@ -567,8 +577,36 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
       }
       return prev;
     });
+  }, [activeTab, isCreatingBudget, bWizardStep, viewingBudget, showPdf, isAddingClient, selectedClient, showAdmin]);
 
-    // Native Hardware Buttons Integration Engine
+  // Native Hardware Buttons Integration Engine
+  // Ref to always hold the freshest reference to handleNativeBack
+  const nativeBackRef = useRef<() => void>(() => {});
+  
+  useEffect(() => {
+    nativeBackRef.current = handleNativeBack;
+  }, [
+    activeTab,
+    isCreatingBudget,
+    bWizardStep,
+    viewingBudget,
+    showPdf,
+    isAddingClient,
+    selectedClient,
+    showAdmin,
+    editingProduct,
+    productToDelete,
+    showSyncInfoModal,
+    showDeleteConfirm,
+    showDraftPdf,
+    showImportSuccess,
+    showWhatsappImporter,
+    showQuickGuide,
+    navHistory
+  ]);
+
+  // Bind real device system environment listeners ONCE on app mount
+  useEffect(() => {
     // 1. Push history state so there is a previous page to target for popstate (and prevent immediate browser exit)
     try {
       window.history.pushState({ appInterceptMarker: true }, '');
@@ -579,7 +617,9 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
     const handlePopStateEvent = (e: PopStateEvent) => {
       e.preventDefault();
       // Physical Android swipe back / Back button gesture detected!
-      handleNativeBack();
+      if (nativeBackRef.current) {
+        nativeBackRef.current();
+      }
       // Keep state bookmark to protect subsequent physical back presses
       try {
         window.history.pushState({ appInterceptMarker: true }, '');
@@ -598,7 +638,6 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
       }
     };
 
-    // Bind real device system environment listeners
     window.addEventListener('popstate', handlePopStateEvent);
     document.addEventListener('visibilitychange', handleDocumentVisibility);
 
@@ -606,16 +645,59 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
       window.removeEventListener('popstate', handlePopStateEvent);
       document.removeEventListener('visibilitychange', handleDocumentVisibility);
     };
-  }, [activeTab, isCreatingBudget, bWizardStep, viewingBudget, showPdf, isAddingClient, selectedClient, showAdmin]);
+  }, []);
 
   // Unified controller for native-like keys
   const handleNativeBack = () => {
+    // 1. Prioritize overlays and modal dialogs first (close them without changing state or losing work)
     if (showPdf) {
       setShowPdf(false);
-      onAddLog('Navegação física: Fechou PDF.');
+      onAddLog('Navegação física: Fechou visualizador PDF.');
       triggerNotification("PDF fechado");
       return;
     }
+    if (showDraftPdf) {
+      setShowDraftPdf(false);
+      onAddLog('Navegação física: Fechou rascunho de PDF.');
+      return;
+    }
+    if (productToDelete) {
+      setProductToDelete(null);
+      onAddLog('Navegação física: Cancelou exclusão de produto.');
+      return;
+    }
+    if (editingProduct) {
+      setEditingProduct(null);
+      onAddLog('Navegação física: Cancelou edição de produto.');
+      return;
+    }
+    if (showDeleteConfirm) {
+      setShowDeleteConfirm(false);
+      onAddLog('Navegação física: Fechou confirmação de exclusão.');
+      return;
+    }
+    if (showSyncInfoModal) {
+      setShowSyncInfoModal(false);
+      onAddLog('Navegação física: Fechou info de sincronização.');
+      return;
+    }
+    if (showWhatsappImporter) {
+      setShowWhatsappImporter(false);
+      onAddLog('Navegação física: Fechou importador do WhatsApp.');
+      return;
+    }
+    if (showImportSuccess) {
+      setShowImportSuccess(false);
+      onAddLog('Navegação física: Fechou sucesso de importação.');
+      return;
+    }
+    if (showQuickGuide) {
+      setShowQuickGuide(false);
+      onAddLog('Navegação física: Fechou guia de ajuda rápido.');
+      return;
+    }
+
+    // 2. Client & Budget Detail screens
     if (viewingBudget) {
       setViewingBudget(null);
       onAddLog('Navegação física: Voltou dos detalhes do orçamento.');
@@ -647,7 +729,7 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
       return;
     }
 
-    // Pop the previous state from history stack
+    // 3. Rollback navigation history
     if (navHistory.length > 1) {
       const prevStates = [...navHistory];
       prevStates.pop(); // discard current state
@@ -670,6 +752,7 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
       }
     }
 
+    // 4. Default fallback: back to main dashboard
     if (activeTab !== 'dashboard') {
       setActiveTab('dashboard');
       onAddLog('Navegação física: Retornou ao Painel Inicial.');
@@ -686,6 +769,9 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
     setIsAddingClient(false);
     setSelectedClient(null);
     setShowAdmin(false);
+    setEditingProduct(null);
+    setProductToDelete(null);
+    setShowSyncInfoModal(false);
     onAddLog('Navegação física: Retornou ao menu principal.');
     triggerNotification("Voltou para Início");
   };
@@ -1935,6 +2021,49 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
     onAddLog(`Cliente "${targetName}" excluído fisicamente.`);
   };
 
+  // Edit / Delete Wood Material local actions
+  const handleSaveEditProduct = () => {
+    if (!editingProduct) return;
+    if (!editProdName.trim()) {
+      triggerNotification("⚠️ Nome do material não pode ser vazio!");
+      return;
+    }
+    if (!editProdCode.trim()) {
+      triggerNotification("⚠️ Código SKU não pode ser vazio!");
+      return;
+    }
+    const priceVal = parseFloat(editProdPrice) || 0;
+    
+    setProducts(prev => prev.map(p => {
+      if (p.id === editingProduct.id) {
+        return {
+          ...p,
+          name: editProdName,
+          code: editProdCode,
+          unit: editProdUnit,
+          price: priceVal,
+          description: editProdDesc
+        };
+      }
+      return p;
+    }));
+
+    triggerNotification("✔️ Alterações salvas com sucesso!");
+    onAddLog(`Madeira editada: ${editProdName} (SKU: ${editProdCode}, R$ ${priceVal.toLocaleString('pt-BR')})`);
+    setEditingProduct(null);
+  };
+
+  const handleDeleteProduct = (productId: string) => {
+    const target = products.find(p => p.id === productId);
+    const targetName = target ? target.name : 'Material';
+    setProducts(prev => prev.filter(p => p.id !== productId));
+    triggerNotification(`Material "${targetName}" excluído!`);
+    onAddLog(`Material "${targetName}" excluído fisicamente da base de dados.`);
+    if (editingProduct?.id === productId) {
+      setEditingProduct(null);
+    }
+  };
+
   // Budget calculations
   const calculatedSubtotal = useMemo(() => {
     return bItems.reduce((acc, item) => {
@@ -2603,6 +2732,34 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
     } catch (error) {
       console.error('Share error:', error);
       triggerDownloadImage();
+    }
+  };
+
+  const handleCopyImageToClipboard = async () => {
+    if (!generatedImg) return;
+    try {
+      const file = base64ToFile(generatedImg, 'orcamento-orcafacil.png');
+      const blob = new Blob([file], { type: 'image/png' });
+      
+      if (navigator.clipboard && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            [blob.type]: blob
+          })
+        ]);
+        triggerNotification('📋 Imagem copiada com sucesso! Abra o WhatsApp e cole no chat.');
+      } else {
+        throw new Error('Clipboard write API not supported or blocked in this WebView');
+      }
+    } catch (err) {
+      console.error('Clipboard image copy error:', err);
+      // Fallback: copy formatted text instead and notify
+      if (generatedWhatsApptext) {
+        copyToClipboard(generatedWhatsApptext);
+        triggerNotification('⚠️ Cópia de Imagem bloqueada. Copiamos o Texto Formatado para você colar!');
+      } else {
+        triggerNotification('Não foi possível copiar a imagem. Por favor, use o Toque Longo.');
+      }
     }
   };
 
@@ -3553,6 +3710,7 @@ ${itemRows}
                     <Zap className="w-3.5 h-3.5 text-purple-400 animate-bounce" />
                     <span>Estresse Recursal (SVG 3D, Whatsapp & Filtros)</span>
                   </button>
+
                 </div>
 
                 {/* Progress Bar */}
@@ -3660,6 +3818,7 @@ ${itemRows}
                           </p>
                         </div>
                       )}
+
                     </div>
                   </div>
                 )}
@@ -4471,7 +4630,7 @@ ${itemRows}
 
           {/* PRODUCTS CATALOG TAB */}
           {activeTab === 'products' && (
-            <div className="flex flex-col gap-3.5 h-full overflow-y-auto pr-1">
+            <div className="flex flex-col gap-3.5 h-full overflow-y-auto pr-1 relative">
               <div className="flex justify-between items-center bg-neutral-900 border border-neutral-800/60 p-3 rounded-2xl">
                 <div className="flex items-center gap-2">
                   <ShoppingBag className="w-5 h-5 text-amber-500" />
@@ -4480,7 +4639,35 @@ ${itemRows}
                 <span className="text-[10px] text-zinc-400 font-mono bg-neutral-950 px-2 py-0.5 rounded border border-neutral-850">{products.length} madeiras ativas</span>
               </div>
 
-              {/* Dynamic Wood Cubic M3 Huber calculator panel decoration */}
+              {/* Products Sub-tab Selector */}
+              <div className="grid grid-cols-2 gap-1.5 p-1 bg-neutral-950 rounded-xl border border-neutral-850 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setProductsSubTab('lista')}
+                  className={`py-2 px-3 rounded-lg text-xs font-black transition-all cursor-pointer select-none text-center leading-tight ${
+                    productsSubTab === 'lista'
+                      ? 'bg-amber-600 text-neutral-950 shadow'
+                      : 'bg-neutral-900 text-zinc-400 hover:text-zinc-200 hover:bg-neutral-850'
+                  }`}
+                >
+                  Lista e Tabela 🪵
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProductsSubTab('sob_medida')}
+                  className={`py-2 px-3 rounded-lg text-xs font-black transition-all cursor-pointer select-none text-center leading-tight ${
+                    productsSubTab === 'sob_medida'
+                      ? 'bg-amber-600 text-neutral-950 shadow'
+                      : 'bg-neutral-900 text-zinc-400 hover:text-zinc-200 hover:bg-neutral-850'
+                  }`}
+                >
+                  Cadastrar Sob Medida 📐
+                </button>
+              </div>
+
+              {productsSubTab === 'lista' && (
+                <div className="space-y-3.5 animate-fade-in">
+                  {/* Dynamic Wood Cubic M3 Huber calculator panel decoration */}
               <div className="bg-gradient-to-br from-indigo-950/40 to-neutral-950 p-4.5 rounded-2xl border border-neutral-800/80 flex flex-col gap-3.5 shadow-md">
                 <div className="flex justify-between items-center">
                   <span className="text-xs uppercase tracking-wider text-indigo-300 font-extrabold flex items-center gap-1.5 font-sans">
@@ -4694,33 +4881,308 @@ ${itemRows}
               {/* Grid-style table items */}
               <div className="space-y-2.5 mt-0.5">
                 {filteredProducts.map(p => (
-                  <div key={p.id} className="p-3.5 bg-neutral-950 rounded-xl border border-neutral-800 flex justify-between items-start gap-2 shadow-sm hover:border-neutral-750 transition-colors">
-                    <div className="flex-1 min-w-0 pr-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono font-bold text-zinc-500 bg-neutral-900 border border-neutral-850 px-1.5 py-0.5 rounded">{p.code}</span>
-                        <span className="px-2 py-0.5 bg-neutral-900 text-zinc-300 font-mono font-extrabold text-[10px] rounded-lg border border-neutral-850">{p.unit}</span>
+                  <div key={p.id} className="p-3.5 bg-neutral-950 rounded-xl border border-neutral-800 flex flex-col gap-2.5 shadow-sm hover:border-neutral-750 transition-colors">
+                    <div className="flex justify-between items-start gap-2 w-full">
+                      <div className="flex-1 min-w-0 pr-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono font-bold text-zinc-500 bg-neutral-900 border border-neutral-850 px-1.5 py-0.5 rounded">{p.code}</span>
+                          <span className="px-2 py-0.5 bg-neutral-900 text-zinc-300 font-mono font-extrabold text-[10px] rounded-lg border border-neutral-850">{p.unit}</span>
+                        </div>
+                        <h4 className="font-extrabold text-zinc-200 text-xs sm:text-sm mt-1.5 truncate tracking-tight">{p.name}</h4>
+                        <p className="text-[11px] text-zinc-500 line-clamp-1 mt-1 leading-snug">{p.description}</p>
                       </div>
-                      <h4 className="font-extrabold text-zinc-200 text-xs sm:text-sm mt-1.5 truncate tracking-tight">{p.name}</h4>
-                      <p className="text-[11px] text-zinc-500 line-clamp-1 mt-1 leading-snug">{p.description}</p>
+                      <div className="text-right shrink-0 flex flex-col justify-between h-full min-h-[50px]">
+                        <div className="text-amber-500 font-mono font-black text-xs sm:text-sm">R$ {p.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
+                        <span className="text-[9px] text-zinc-500 block uppercase font-bold mt-0.5">{p.unit === 'CM' ? 'por cm de largura' : `por ${p.unit.toLowerCase()}`}</span>
+                        
+                        {p.unit === 'M3' && (
+                          <button 
+                            onClick={() => { setCalcProductPrice(p.price); handleCubicCalcChange(calcDiameter, calcLength, p.price); triggerNotification(`Carregado: ${p.name}`); }}
+                            className="mt-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-extrabold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-wider block cursor-pointer transition-all text-center self-end border border-indigo-500 shadow-sm"
+                          >
+                            Calcular
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-right shrink-0 flex flex-col justify-between h-full min-h-[50px]">
-                      <div className="text-amber-500 font-mono font-black text-xs sm:text-sm">R$ {p.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                      <span className="text-[9px] text-zinc-500 block uppercase font-bold mt-0.5">{p.unit === 'CM' ? 'por cm de largura' : `por ${p.unit.toLowerCase()}`}</span>
-                      
-                      {p.unit === 'M3' && (
-                        <button 
-                          onClick={() => { setCalcProductPrice(p.price); handleCubicCalcChange(calcDiameter, calcLength, p.price); triggerNotification(`Carregado: ${p.name}`); }}
-                          className="mt-2 bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-extrabold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-wider block cursor-pointer transition-all text-center self-end border border-indigo-500 shadow-sm"
-                        >
-                          Calcular
-                        </button>
-                      )}
+
+                    {/* Action buttons to edit/delete wood products */}
+                    <div className="flex gap-4 pt-2 border-t border-neutral-900/60 w-full justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingProduct(p);
+                          setEditProdName(p.name);
+                          setEditProdCode(p.code);
+                          setEditProdUnit(p.unit);
+                          setEditProdPrice(String(p.price));
+                          setEditProdDesc(p.description);
+                        }}
+                        className="flex items-center gap-1 text-[10.5px] text-amber-500 font-extrabold hover:text-amber-400 cursor-pointer select-none"
+                      >
+                        <Edit className="w-3.5 h-3.5 stroke-[2.5]" /> Editar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProductToDelete(p);
+                        }}
+                        className="flex items-center gap-1 text-[10.5px] text-rose-500 font-extrabold hover:text-rose-450 cursor-pointer select-none"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 stroke-[2.5]" /> Excluir
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
           )}
+
+          {productsSubTab === 'sob_medida' && (
+            <div className="space-y-4 animate-fade-in pb-8">
+              <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 space-y-3">
+                <h4 className="text-xs uppercase tracking-wider text-amber-500 font-black flex items-center gap-1.5">
+                  📐 Cadastrar Nova Medida de Madeira
+                </h4>
+                <p className="text-xs text-zinc-400 leading-relaxed font-medium">
+                  Cadastre peças com dimensões sob medida (como <strong>14x16</strong>, 15x20) e comprimentos personalizados. O material será registrado no banco local e ficará disponível para inserção nos orçamentos!
+                </p>
+              </div>
+
+              <div className="bg-neutral-900/40 p-4 rounded-2xl border border-neutral-800/80 space-y-3.5">
+                <div>
+                  <label className="text-[10px] text-zinc-300 font-bold uppercase block mb-1">Nome do Produto</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Pilar de Eucalipto 14x16 Tratado"
+                    value={newMeasureName}
+                    onChange={(e) => {
+                      setNewMeasureName(e.target.value);
+                      // Auto generate code
+                      if (!newMeasureCode) {
+                        const words = e.target.value.split(' ');
+                        const initials = words.slice(0, 2).map(w => w.slice(0, 3).toUpperCase()).join('-');
+                        setNewMeasureCode(initials ? `${initials}-${Math.floor(100 + Math.random()*900)}` : '');
+                      }
+                    }}
+                    className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 text-xs sm:text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[10px] text-zinc-350 font-bold uppercase block mb-1">Código SKU único</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: PIL-1416"
+                      value={newMeasureCode}
+                      onChange={(e) => setNewMeasureCode(e.target.value.toUpperCase())}
+                      className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 font-mono text-xs sm:text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-zinc-350 font-bold uppercase block mb-1">Tipo de Unidade</label>
+                    <select
+                      value={newMeasureUnit}
+                      onChange={(e) => setNewMeasureUnit(e.target.value as UnitType)}
+                      className="w-full h-11 bg-neutral-950 border border-neutral-850 rounded-lg px-2 text-xs text-zinc-350 font-bold focus:border-amber-500 outline-none"
+                    >
+                      <option value="M3">M3 (Metro Cúbico Huber/Tora)</option>
+                      <option value="TABUA">TÁBUA (Venda cm Largura * m linear)</option>
+                      <option value="PRANCHA">PRANCHA (Venda cm Largura * m linear)</option>
+                      <option value="M">M (Metro Linear Simples)</option>
+                      <option value="UN">UN (Unidade Fixa)</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-3 pt-1 border-t border-neutral-850/50">
+                  <div>
+                    <label className="text-[10px] text-zinc-350 font-bold uppercase block mb-1">
+                      {newMeasureUnit === 'M3' ? 'Diâmetro (cm)' : 'Espessura (cm)'}
+                      {newMeasureUnit === 'UN' && ' (Opcional)'}
+                    </label>
+                    <input
+                      type="number"
+                      value={newMeasureThickness}
+                      onChange={(e) => setNewMeasureThickness(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 font-mono text-xs sm:text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-zinc-350 font-bold uppercase block mb-1">
+                      Largura (cm)
+                      {newMeasureUnit === 'M3' ? ' (N/A)' : newMeasureUnit === 'M' ? ' (N/A)' : newMeasureUnit === 'UN' ? ' (Opcional)' : ''}
+                    </label>
+                    <input
+                      type="number"
+                      value={newMeasureWidth}
+                      onChange={(e) => setNewMeasureWidth(e.target.value)}
+                      disabled={newMeasureUnit === 'M3' || newMeasureUnit === 'M'}
+                      className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 font-mono text-xs sm:text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none disabled:opacity-40"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-[10px] text-zinc-350 font-bold uppercase block mb-1">
+                      Comp. (m)
+                      {newMeasureUnit === 'UN' && ' (Opcional)'}
+                    </label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      placeholder="Ex: 3.0"
+                      value={newMeasureLength}
+                      onChange={(e) => setNewMeasureLength(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 font-mono text-xs sm:text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-zinc-350 font-bold uppercase block mb-1">
+                    {newMeasureUnit === 'M3' 
+                      ? 'Preço por Metro Cúbico (R$ / m³)' 
+                      : newMeasureUnit === 'TABUA' || newMeasureUnit === 'PRANCHA' 
+                        ? 'Preço por cm de Largura e metro linear (R$)' 
+                        : newMeasureUnit === 'M'
+                          ? 'Preço por Metro Linear (R$ / m)'
+                          : 'Preço por Unidade Fixo (R$ / UN)'}
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-zinc-500 font-black text-xs font-mono">R$</span>
+                    <input
+                      type="number"
+                      value={newMeasurePrice}
+                      onChange={(e) => setNewMeasurePrice(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 font-mono text-xs sm:text-sm text-amber-500 font-bold focus:border-amber-500 outline-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Volume and price preview of 1 piece */}
+                {(() => {
+                  const th = parseFloat(newMeasureThickness) || 0;
+                  const wd = parseFloat(newMeasureWidth) || 0;
+                  const len = parseFloat(newMeasureLength) || 0;
+                  const priceVal = parseFloat(newMeasurePrice) || 0;
+                  let singleVol = 0;
+                  let singlePrice = 0;
+                  let formulaDesc = '';
+
+                  if (newMeasureUnit === 'M3') {
+                    // Huber formula for circular round wood/toras
+                    singleVol = parseCubicMeters(th, len);
+                    singlePrice = singleVol * priceVal;
+                    formulaDesc = `Volume Huber (Ø${th}cm x ${len}m) = ${singleVol.toFixed(4)} m³. Preço: ${singleVol.toFixed(4)} * R$ ${priceVal} = R$ ${singlePrice.toFixed(2)}`;
+                  } else if (newMeasureUnit === 'TABUA' || newMeasureUnit === 'PRANCHA') {
+                    // Rectangular timber volume
+                    singleVol = (th * wd * len) / 10000;
+                    // Price: width * price_per_cm_meter * length
+                    singlePrice = wd * priceVal * len;
+                    formulaDesc = `Largura ${wd}cm * Preço R$ ${priceVal} * Comprimento ${len}m = R$ ${singlePrice.toFixed(2)}`;
+                  } else if (newMeasureUnit === 'M') {
+                    singleVol = (th * wd * len) / 10000;
+                    // Price: length * price_per_meter
+                    singlePrice = len * priceVal;
+                    formulaDesc = `Comprimento ${len}m * Preço R$ ${priceVal} = R$ ${singlePrice.toFixed(2)}`;
+                  } else if (newMeasureUnit === 'UN') {
+                    singleVol = (th * wd * len) / 10000;
+                    // Fixed unit price!
+                    singlePrice = priceVal;
+                    formulaDesc = `Valor Unitário Fixo = R$ ${priceVal.toFixed(2)}`;
+                  }
+
+                  return (
+                    <div className="bg-neutral-950 p-3.5 rounded-xl border border-neutral-850 space-y-2.5">
+                      <div className="text-[10px] text-zinc-400 italic font-sans leading-relaxed flex items-start gap-1">
+                        <span className="text-amber-500 font-bold">💡 Cálculo:</span>
+                        <span>{formulaDesc}</span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 border-t border-neutral-900 pt-2">
+                        <div>
+                          <span className="text-[9px] text-zinc-500 uppercase block font-bold">Vol. Peça Sob Medida</span>
+                          <span className="text-xs font-mono text-indigo-400 font-black">{singleVol > 0 ? `${singleVol.toFixed(4)} m³` : 'N/A'}</span>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[9px] text-zinc-500 uppercase block font-bold">Preço Unitário Estimado</span>
+                          <span className="text-xs font-mono text-emerald-400 font-black">R$ {singlePrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!newMeasureName) {
+                      triggerNotification("⚠️ Escreva um nome para o produto!");
+                      return;
+                    }
+                    const th = parseFloat(newMeasureThickness) || 0;
+                    const wd = parseFloat(newMeasureWidth) || 0;
+                    const len = parseFloat(newMeasureLength) || 0;
+                    const priceVal = parseFloat(newMeasurePrice) || 0;
+
+                    // Specific code defaults based on unit
+                    const defaultPrefix = newMeasureUnit === 'M3' ? 'TOR' : newMeasureUnit === 'TABUA' ? 'TAB' : newMeasureUnit === 'PRANCHA' ? 'PRA' : newMeasureUnit === 'M' ? 'MET' : 'UNI';
+                    const finalCode = newMeasureCode || `${defaultPrefix}-${th || 10}${wd ? `X${wd}` : ''}-${Math.floor(100+Math.random()*900)}`;
+
+                    let desc = '';
+                    if (newMeasureUnit === 'M3') {
+                      desc = `Tora sob medida: Ø${th}cm, comprimento ${len}m.`;
+                    } else if (newMeasureUnit === 'TABUA' || newMeasureUnit === 'PRANCHA') {
+                      desc = `Serrada sob medida: ${th}x${wd}cm, comprimento ${len}m.`;
+                    } else if (newMeasureUnit === 'M') {
+                      desc = `Metro linear simples: ${th > 0 ? `${th}x` : ''}${wd > 0 ? `${wd}cm, ` : ''}comprimento ${len}m.`;
+                    } else if (newMeasureUnit === 'UN') {
+                      desc = `Peça unitária com preço fixo${th > 0 || wd > 0 ? ` (${th > 0 ? `${th}x` : ''}${wd > 0 ? `${wd}` : ''}cm)` : ''}${len > 0 ? ` de ${len}m` : ''}.`;
+                    }
+
+                    const newProduct: Product = {
+                      id: 'custom_' + Date.now(),
+                      code: finalCode,
+                      name: newMeasureName,
+                      price: priceVal,
+                      unit: newMeasureUnit,
+                      description: desc
+                    };
+
+                    setProducts(prev => [newProduct, ...prev]);
+
+                    // Set custom dims
+                    setProdDimensions(prev => ({
+                      ...prev,
+                      [newProduct.id]: {
+                        width: wd || 25,
+                        length: len || 3,
+                        diameter: th || 40
+                      }
+                    }));
+
+                    triggerNotification("✔️ Cadastrado com Sucesso!");
+                    onAddLog(`Cadastrada madeira personalizada: ${newProduct.name} (Unidade: ${newMeasureUnit}, R$ ${priceVal.toLocaleString('pt-BR')})`);
+                    
+                    // Clear inputs
+                    setNewMeasureName('');
+                    setNewMeasureCode('');
+                    setNewMeasurePrice('2200');
+                    
+                    setProductsSubTab('lista');
+                    triggerNotification("Medida cadastrada com sucesso!");
+                  }}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-black py-3.5 rounded-xl text-xs uppercase tracking-wider transition-all select-none cursor-pointer flex items-center justify-center gap-2 border border-emerald-500 font-sans"
+                >
+                  <Check className="w-4 h-4 stroke-[2.5]" /> Salvar e Registrar na Tabela
+                </button>
+              </div>
+            </div>
+          )}
+
+        </div>
+      )}
 
           {/* CALCULATORS AND PROJECTS TAB */}
           {activeTab === 'calculators' && (
@@ -4730,14 +5192,12 @@ ${itemRows}
                   <Calculator className="w-5 h-5 text-amber-500" />
                   <h3 className="font-extrabold text-sm text-amber-500 font-sans tracking-wide">Projetos & Calculadoras</h3>
                 </div>
-                <span className="text-[10px] text-zinc-400 font-mono bg-neutral-950 px-2 py-0.5 rounded border border-neutral-850">4 módulos ativos</span>
+                <span className="text-[10px] text-zinc-400 font-mono bg-neutral-950 px-2 py-0.5 rounded border border-neutral-850">2 módulos ativos</span>
               </div>
 
               {/* Sub-tab Selectors */}
-              <div className="grid grid-cols-4 gap-1 p-1 bg-neutral-950 rounded-xl border border-neutral-800 shrink-0">
+              <div className="grid grid-cols-2 gap-1 p-1 bg-neutral-950 rounded-xl border border-neutral-800 shrink-0">
                 {[
-                  { id: 'explanation', label: 'Cálculo m³' },
-                  { id: 'new_measure', label: 'Sob Medida' },
                   { id: 'porteiras', label: 'Porteiras' },
                   { id: 'mesas', label: 'Mesas' }
                 ].map(sub => {
@@ -4757,394 +5217,6 @@ ${itemRows}
                   );
                 })}
               </div>
-
-              {/* SECTION 1: EXPLANATION OF M³ */}
-              {calcSubTab === 'explanation' && (
-                <div className="space-y-4 animate-fade-in">
-                  <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 space-y-3">
-                    <h4 className="text-xs uppercase tracking-wider text-amber-500 font-black flex items-center gap-1.5">
-                      💡 Como funciona o cálculo de Metro Cúbico (m³)?
-                    </h4>
-                    <p className="text-xs text-zinc-400 leading-relaxed font-medium">
-                      O metro cúbico (m³) representa o volume de madeira. Dependendo do tipo físico da madeira (redonda/tora vs. serrada quadrada/retangular), a fórmula matemática utilizada na prática florestal muda para garantir exatidão e autoria:
-                    </p>
-
-                    <div className="border-t border-neutral-850 pt-3 space-y-3">
-                      {/* TYPE 1: Serrada */}
-                      <div className="bg-neutral-900 p-3.5 rounded-xl border border-neutral-850">
-                        <span className="text-[10px] bg-amber-950 text-amber-400 px-2.5 py-0.5 rounded-lg font-mono font-bold uppercase border border-amber-800/40">1. Madeira Serrada (Peças, Vigas, Pranchas)</span>
-                        <p className="text-xs text-zinc-300 mt-2 leading-relaxed font-sans">
-                          Para peças quadradas ou retangulares (como vigas de <strong>14x16</strong>, caibros, tábuas), calculamos multiplicando a Espessura, a Largura e o Comprimento:
-                        </p>
-                        <div className="bg-neutral-950 p-3 rounded-lg my-2 border border-neutral-800 font-mono text-center text-xs text-yellow-500 font-bold">
-                          Volume (m³) = (Espessura em cm × Largura em cm × Comprimento em m) / 10.000
-                        </div>
-                        <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
-                          <strong>Exemplo Prático:</strong> Uma viga serrada de <span className="text-zinc-200 font-bold">14cm x 16cm</span> com <span className="text-zinc-200 font-bold">3 metros</span> de comprimento:
-                        </p>
-                        <code className="block bg-neutral-950 p-2 rounded text-[11px] font-mono text-indigo-400 mt-1.5 border border-neutral-850">
-                          (14 × 16 × 3) / 10.000 = 672 / 10.000 = 0.0672 m³ por viga.
-                        </code>
-                      </div>
-
-                      {/* TYPE 2: Tora Huber */}
-                      <div className="bg-neutral-900 p-3.5 rounded-xl border border-neutral-850">
-                        <span className="text-[10px] bg-indigo-950 text-indigo-400 px-2.5 py-0.5 rounded-lg font-mono font-bold uppercase border border-indigo-800/40">2. Madeira em Tora (Fórmula de Huber)</span>
-                        <p className="text-xs text-zinc-300 mt-2 leading-relaxed font-sans">
-                          Para toras redondas brutas de árvores (como Eucalipto ou Pinus bruto), usamos o diâmetro central (Ø) medido exatamente na metade da tora:
-                        </p>
-                        <div className="bg-neutral-950 p-3 rounded-lg my-2 border border-neutral-800 font-mono text-center text-xs text-yellow-500 font-bold">
-                          Volume (m³) = (π × Diâmetro² em cm × Comprimento em m) / 40.000
-                        </div>
-                        <p className="text-[11px] text-zinc-400 leading-relaxed font-sans">
-                          <strong>Exemplo Prático:</strong> Uma tora de diâmetro médio <span className="text-zinc-200 font-bold">30cm</span> com <span className="text-zinc-200 font-bold">4 metros</span> de comprimento:
-                        </p>
-                        <code className="block bg-neutral-950 p-2 rounded text-[11px] font-mono text-indigo-400 mt-1.5 border border-neutral-850">
-                          (3.14159 × 30² × 4) / 40.000 = (3.14159 × 900 × 4) / 40.000 = 0.283 m³.
-                        </code>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* INTERACTIVE FORMULA SANDBOX */}
-                  <div className="bg-gradient-to-b from-neutral-900 to-neutral-950 p-4 rounded-2xl border border-neutral-800 space-y-3.5 shadow-inner">
-                    <span className="text-xs uppercase tracking-wider text-amber-500 font-black block">
-                      🧪 Simulação de Cubagem Passo-a-Passo
-                    </span>
-
-                    <div className="flex gap-1.5 p-1 bg-neutral-950 rounded-lg border border-neutral-850">
-                      <button
-                        onClick={() => setSandboxType('rectangular')}
-                        className={`flex-1 py-1.5 text-xs font-bold rounded cursor-pointer ${sandboxType === 'rectangular' ? 'bg-amber-600 text-neutral-950' : 'text-zinc-400'}`}
-                      >
-                        Serrada (Ex: 14x16)
-                      </button>
-                      <button
-                        onClick={() => setSandboxType('round')}
-                        className={`flex-1 py-1.5 text-xs font-bold rounded cursor-pointer ${sandboxType === 'round' ? 'bg-indigo-600 text-white' : 'text-zinc-400'}`}
-                      >
-                        Tora Redonda (Huber)
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                      {sandboxType === 'rectangular' ? (
-                        <>
-                          <div>
-                            <label className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Espessura (cm)</label>
-                            <input
-                              type="number"
-                              value={sandboxThickness}
-                              onChange={(e) => setSandboxThickness(e.target.value)}
-                              className="w-full bg-neutral-950 border border-neutral-800 rounded-lg py-2.5 px-3 font-mono text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none"
-                            />
-                          </div>
-                          <div>
-                            <label className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Largura (cm)</label>
-                            <input
-                              type="number"
-                              value={sandboxWidth}
-                              onChange={(e) => setSandboxWidth(e.target.value)}
-                              className="w-full bg-neutral-950 border border-neutral-800 rounded-lg py-2.5 px-3 font-mono text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none"
-                            />
-                          </div>
-                        </>
-                      ) : (
-                        <div>
-                          <label className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Diâmetro (cm)</label>
-                          <input
-                            type="number"
-                            value={sandboxDiameter}
-                            onChange={(e) => setSandboxDiameter(e.target.value)}
-                            className="w-full bg-neutral-950 border border-neutral-800 rounded-lg py-2.5 px-3 font-mono text-sm text-zinc-200 font-bold focus:border-indigo-500 outline-none"
-                          />
-                        </div>
-                      )}
-
-                      <div>
-                        <label className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Comprimento (m)</label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={sandboxLength}
-                          onChange={(e) => setSandboxLength(e.target.value)}
-                          className="w-full bg-neutral-950 border border-neutral-800 rounded-lg py-2.5 px-3 font-mono text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none"
-                        />
-                      </div>
-
-                      <div className="col-span-2 sm:col-span-1">
-                        <label className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Valor R$ / m³</label>
-                        <input
-                          type="number"
-                          value={sandboxPricePerM3}
-                          onChange={(e) => setSandboxPricePerM3(e.target.value)}
-                          className="w-full bg-neutral-950 border border-neutral-800 rounded-lg py-2.5 px-3 font-mono text-sm text-amber-500 font-bold focus:border-amber-500 outline-none"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Step-by-step Math visualizer */}
-                    {(() => {
-                      const len = parseFloat(sandboxLength) || 0;
-                      const priceVal = parseFloat(sandboxPricePerM3) || 0;
-                      let vol = 0;
-                      let formulaText = '';
-                      let steps: string[] = [];
-
-                      if (sandboxType === 'rectangular') {
-                        const th = parseFloat(sandboxThickness) || 0;
-                        const wd = parseFloat(sandboxWidth) || 0;
-                        vol = (th * wd * len) / 10000;
-                        formulaText = `(${th} × ${wd} × ${len}) / 10.000`;
-                        steps = [
-                          `1. Área transversal: ${th}cm × ${wd}cm = ${th * wd} cm²`,
-                          `2. Multiplicação pelo comprimento: ${th * wd}cm² × ${len}m = ${(th * wd * len).toFixed(1)} cm²m`,
-                          `3. Conversão para m³: ${(th * wd * len).toFixed(1)} / 10.000 = ${vol.toFixed(4)} m³`,
-                          `4. Valor da peça: ${vol.toFixed(4)}m³ × R$ ${priceVal.toLocaleString('pt-BR')} = R$ ${(vol * priceVal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-                        ];
-                      } else {
-                        const dm = parseFloat(sandboxDiameter) || 0;
-                        vol = (Math.PI * Math.pow(dm, 2) * len) / 40000;
-                        formulaText = `(π × ${dm}² × ${len}) / 40.000`;
-                        steps = [
-                          `1. Quadrado do Diâmetro: ${dm} × ${dm} = ${dm * dm} cm²`,
-                          `2. Multiplicação por π (${Math.PI.toFixed(5)}) e Comprimento: ${(Math.PI * dm * dm).toFixed(2)} × ${len} = ${(Math.PI * dm * dm * len).toFixed(2)}`,
-                          `3. Conversão para m³: ${(Math.PI * dm * dm * len).toFixed(2)} / 40.000 = ${vol.toFixed(4)} m³`,
-                          `4. Valor da peça: ${vol.toFixed(4)}m³ × R$ ${priceVal.toLocaleString('pt-BR')} = R$ ${(vol * priceVal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-                        ];
-                      }
-
-                      return (
-                        <div className="bg-neutral-950 p-3.5 rounded-xl border border-neutral-850 space-y-2.5">
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="text-[10px] text-zinc-500 uppercase font-bold tracking-wider">Fórmula Aplicada:</span>
-                            <span className="font-mono text-indigo-400 font-extrabold">{formulaText}</span>
-                          </div>
-                          
-                          <div className="space-y-1.5 border-t border-b border-neutral-900 py-2.5">
-                            {steps.map((st, i) => (
-                              <div key={i} className="text-[11px] text-zinc-400 font-semibold font-mono flex items-center gap-1.5">
-                                <span className="text-amber-500">▶</span>
-                                {st}
-                              </div>
-                            ))}
-                          </div>
-
-                          <div className="flex justify-between items-center bg-neutral-900/40 p-2.5 rounded-lg border border-neutral-850">
-                            <div>
-                              <span className="text-[9px] text-zinc-500 uppercase block font-bold">Volume</span>
-                              <span className="text-sm font-mono text-indigo-400 font-black">{vol.toFixed(4)} m³</span>
-                            </div>
-                            <div className="text-right">
-                              <span className="text-[9px] text-zinc-500 uppercase block font-bold">Preço de Referência</span>
-                              <span className="text-sm font-mono text-emerald-400 font-black">R$ {(vol * priceVal).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
-
-              {/* SECTION 2: ADIÇÃO DE MEDIDAS (14x16 etc) */}
-              {calcSubTab === 'new_measure' && (
-                <div className="space-y-4 animate-fade-in">
-                  <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 space-y-3">
-                    <h4 className="text-xs uppercase tracking-wider text-amber-500 font-black flex items-center gap-1.5">
-                      📐 Cadastrar Nova Medida de Madeira no SQLite
-                    </h4>
-                    <p className="text-xs text-zinc-400 leading-relaxed font-medium">
-                      Aqui você pode cadastrar qualquer peça com dimensões sob medida (como <strong>14x16</strong>, 15x20) e comprimentos diferentes (<strong>"Opção Outros"</strong>). O produto será registrado e ficará disponível para inclusão instantânea nos orçamentos!
-                    </p>
-                  </div>
-
-                  <div className="bg-neutral-900 p-4 rounded-2xl border border-neutral-800 space-y-3.5">
-                    <div>
-                      <label className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Nome do Produto</label>
-                      <input
-                        type="text"
-                        placeholder="Ex: Pilar de Eucalipto 14x16 Tratado"
-                        value={newMeasureName}
-                        onChange={(e) => {
-                          setNewMeasureName(e.target.value);
-                          // Auto generate code
-                          if (!newMeasureCode) {
-                            const words = e.target.value.split(' ');
-                            const initials = words.slice(0, 2).map(w => w.slice(0, 3).toUpperCase()).join('-');
-                            setNewMeasureCode(initials ? `${initials}-${Math.floor(100 + Math.random()*900)}` : '');
-                          }
-                        }}
-                        className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 text-xs sm:text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none"
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Código SKU único</label>
-                        <input
-                          type="text"
-                          placeholder="Ex: PIL-1416"
-                          value={newMeasureCode}
-                          onChange={(e) => setNewMeasureCode(e.target.value.toUpperCase())}
-                          className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 font-mono text-xs sm:text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Tipo de Unidade</label>
-                        <select
-                          value={newMeasureUnit}
-                          onChange={(e) => setNewMeasureUnit(e.target.value as UnitType)}
-                          className="w-full h-11 bg-neutral-950 border border-neutral-850 rounded-lg px-2 text-xs text-zinc-350 font-bold focus:border-amber-500 outline-none"
-                        >
-                          <option value="M3">M3 (Metro Cúbico Huber/Tora)</option>
-                          <option value="TABUA">TÁBUA (Venda cm Largura * m linear)</option>
-                          <option value="PRANCHA">PRANCHA (Venda cm Largura * m linear)</option>
-                          <option value="M">M (Metro Linear Simples)</option>
-                          <option value="UN">UN (Unidade Fixa)</option>
-                        </select>
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3 pt-1 border-t border-neutral-850/50">
-                      <div>
-                        <label className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Espessura (cm)</label>
-                        <input
-                          type="number"
-                          value={newMeasureThickness}
-                          onChange={(e) => setNewMeasureThickness(e.target.value)}
-                          className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 font-mono text-xs sm:text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Largura (cm)</label>
-                        <input
-                          type="number"
-                          value={newMeasureWidth}
-                          onChange={(e) => setNewMeasureWidth(e.target.value)}
-                          className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 font-mono text-xs sm:text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">Comp. (m) <span className="text-amber-500">*Outros*</span></label>
-                        <input
-                          type="number"
-                          step="0.1"
-                          placeholder="Ex: 4.5"
-                          value={newMeasureLength}
-                          onChange={(e) => setNewMeasureLength(e.target.value)}
-                          className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 font-mono text-xs sm:text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none"
-                        />
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-[10px] text-zinc-400 font-bold uppercase block mb-1">
-                        {newMeasureUnit === 'M3' ? 'Preço por Metro Cúbico (R$ / m³)' : newMeasureUnit === 'TABUA' || newMeasureUnit === 'PRANCHA' ? 'Preço por cm de Largura e metro linear (R$)' : 'Preço por Unidade / Metro (R$)'}
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <span className="text-zinc-500 font-black text-xs font-mono">R$</span>
-                        <input
-                          type="number"
-                          value={newMeasurePrice}
-                          onChange={(e) => setNewMeasurePrice(e.target.value)}
-                          className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 font-mono text-xs sm:text-sm text-amber-500 font-bold focus:border-amber-500 outline-none"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Volume and price preview of 1 piece */}
-                    {(() => {
-                      const th = parseFloat(newMeasureThickness) || 0;
-                      const wd = parseFloat(newMeasureWidth) || 0;
-                      const len = parseFloat(newMeasureLength) || 0;
-                      const priceVal = parseFloat(newMeasurePrice) || 0;
-                      let singleVol = 0;
-                      let singlePrice = 0;
-
-                      if (newMeasureUnit === 'M3') {
-                        singleVol = (th * wd * len) / 10000;
-                        singlePrice = singleVol * priceVal;
-                      } else if (newMeasureUnit === 'TABUA' || newMeasureUnit === 'PRANCHA') {
-                        singleVol = (th * wd * len) / 10000;
-                        singlePrice = wd * priceVal * len;
-                      } else {
-                        singleVol = (th * wd * len) / 10000;
-                        singlePrice = len * priceVal;
-                      }
-
-                      return (
-                        <div className="bg-neutral-950 p-3.5 rounded-xl border border-neutral-850 grid grid-cols-2 gap-3">
-                          <div>
-                            <span className="text-[9px] text-zinc-500 uppercase block font-bold">Vol. Peça Sob Medida</span>
-                            <span className="text-xs font-mono text-indigo-400 font-black">{singleVol > 0 ? `${singleVol.toFixed(4)} m³` : 'N/A'}</span>
-                          </div>
-                          <div className="text-right">
-                            <span className="text-[9px] text-zinc-500 uppercase block font-bold">Preço Unitário Estimado</span>
-                            <span className="text-xs font-mono text-emerald-400 font-black">R$ {singlePrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!newMeasureName) {
-                          triggerNotification("⚠️ Escreva um nome para o produto!");
-                          return;
-                        }
-                        const th = parseFloat(newMeasureThickness) || 14;
-                        const wd = parseFloat(newMeasureWidth) || 16;
-                        const len = parseFloat(newMeasureLength) || 3;
-                        const priceVal = parseFloat(newMeasurePrice) || 2200;
-
-                        const finalCode = newMeasureCode || `MED-${th}${wd}-${Math.floor(100+Math.random()*900)}`;
-
-                        const newProduct: Product = {
-                          id: 'custom_' + Date.now(),
-                          code: finalCode,
-                          name: newMeasureName,
-                          price: priceVal,
-                          unit: newMeasureUnit,
-                          description: `Serrada sob medida: ${th}x${wd}cm, comprimento ${len}m.`
-                        };
-
-                        setProducts(prev => [newProduct, ...prev]);
-
-                        // Set custom dims
-                        setProdDimensions(prev => ({
-                          ...prev,
-                          [newProduct.id]: {
-                            width: wd,
-                            length: len,
-                            diameter: th
-                          }
-                        }));
-
-                        triggerNotification("✔️ Cadastrado com Sucesso!");
-                        onAddLog(`Cadastrada madeira personalizada: ${newProduct.name} (${th}x${wd}cm, SKU: ${newProduct.code})`);
-                        
-                        // Clear inputs
-                        setNewMeasureName('');
-                        setNewMeasureCode('');
-                        setNewMeasurePrice('2200');
-                        
-                        setActiveTab('products');
-                        triggerNotification("Medida cadastrada com sucesso!");
-                      }}
-                      className="w-full bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-black py-3.5 rounded-xl text-xs uppercase tracking-wider transition-all select-none cursor-pointer flex items-center justify-center gap-2 border border-emerald-500 font-sans"
-                    >
-                      <Check className="w-4 h-4 stroke-[2.5]" /> Salvar e Registrar na Tabela
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* SECTION 3: CALCULADORA DE PORTEIRAS */}
               {calcSubTab === 'porteiras' && (
                 <div className="space-y-4 animate-fade-in">
                   <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 space-y-3">
@@ -5724,15 +5796,6 @@ ${itemRows}
               {/* SECTION 4: CALCULADORA DE MESAS */}
               {calcSubTab === 'mesas' && (
                 <div className="space-y-4 animate-fade-in">
-                  <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 space-y-3">
-                    <h4 className="text-xs uppercase tracking-wider text-amber-500 font-black flex items-center gap-1.5">
-                      🪑 Configurador de Mesas de Prancha Maciça
-                    </h4>
-                    <p className="text-xs text-zinc-400 leading-relaxed font-medium">
-                      Configure mesas rústicas fabricadas com pranchas de madeira maciça de alta espessura. Perfeito para precificar orçamentos de design de móveis rústicos!
-                    </p>
-                  </div>
-
                   {/* SVG Live Render */}
                   {(() => {
                     const tableWoodColors = (() => {
@@ -5895,6 +5958,54 @@ ${itemRows}
                                   strokeWidth="2.5" 
                                   strokeLinejoin="round" 
                                 />
+                              </g>
+                            ) : tableLegs === 'x_wood' ? (
+                              <g>
+                                {/* Left X Wood Legs */}
+                                <line 
+                                  x1={tableLayout.xStart + 16} 
+                                  y1={tableLayout.yTop} 
+                                  x2={tableLayout.xStart + 52} 
+                                  y2="128" 
+                                  stroke="url(#tableDynamicWoodLeg)" 
+                                  strokeWidth="10" 
+                                  strokeLinecap="round" 
+                                />
+                                <line 
+                                  x1={tableLayout.xStart + 52} 
+                                  y1={tableLayout.yTop} 
+                                  x2={tableLayout.xStart + 16} 
+                                  y2="128" 
+                                  stroke="url(#tableDynamicWoodLeg)" 
+                                  strokeWidth="10" 
+                                  strokeLinecap="round" 
+                                />
+                                {/* Detail lines for grain structure on X */}
+                                <line x1={tableLayout.xStart + 16} y1={tableLayout.yTop} x2={tableLayout.xStart + 52} y2="128" stroke={tableWoodColors.stroke} strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
+                                <line x1={tableLayout.xStart + 52} y1={tableLayout.yTop} x2={tableLayout.xStart + 16} y2="128" stroke={tableWoodColors.stroke} strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
+
+                                {/* Right X Wood Legs */}
+                                <line 
+                                  x1={tableLayout.xEnd - 52} 
+                                  y1={tableLayout.yTop} 
+                                  x2={tableLayout.xEnd - 16} 
+                                  y2="128" 
+                                  stroke="url(#tableDynamicWoodLeg)" 
+                                  strokeWidth="10" 
+                                  strokeLinecap="round" 
+                                />
+                                <line 
+                                  x1={tableLayout.xEnd - 16} 
+                                  y1={tableLayout.yTop} 
+                                  x2={tableLayout.xEnd - 52} 
+                                  y2="128" 
+                                  stroke="url(#tableDynamicWoodLeg)" 
+                                  strokeWidth="10" 
+                                  strokeLinecap="round" 
+                                />
+                                {/* Detail lines for grain structure on X */}
+                                <line x1={tableLayout.xEnd - 52} y1={tableLayout.yTop} x2={tableLayout.xEnd - 16} y2="128" stroke={tableWoodColors.stroke} strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
+                                <line x1={tableLayout.xEnd - 16} y1={tableLayout.yTop} x2={tableLayout.xEnd - 52} y2="128" stroke={tableWoodColors.stroke} strokeWidth="1" strokeDasharray="3 3" opacity="0.4" />
                               </g>
                             ) : (
                               <g>
@@ -6212,18 +6323,27 @@ ${itemRows}
                     <div className="grid grid-cols-2 gap-3 text-xs pt-2.5 border-t border-dashed border-neutral-800">
                       <div>
                         <label className="text-[10px] text-zinc-400 font-extrabold uppercase block mb-1.5">Design dos Pés / Base</label>
-                        <div className="flex gap-1.5 p-1 bg-neutral-950 rounded-lg border border-neutral-850">
+                        <div className="grid grid-cols-3 gap-1 p-1 bg-neutral-950 rounded-lg border border-neutral-850">
                           <button
+                            type="button"
                             onClick={() => setTableLegs('iron')}
-                            className={`flex-1 py-1.5 text-[11px] font-bold rounded cursor-pointer ${tableLegs === 'iron' ? 'bg-amber-600 text-neutral-950' : 'text-zinc-400'}`}
+                            className={`py-1.5 text-[10px] font-bold rounded cursor-pointer leading-tight text-center ${tableLegs === 'iron' ? 'bg-amber-600 text-neutral-950' : 'text-zinc-400'}`}
                           >
-                            Aço Industrial
+                            Aço Ind.
                           </button>
                           <button
+                            type="button"
                             onClick={() => setTableLegs('wood')}
-                            className={`flex-1 py-1.5 text-[11px] font-bold rounded cursor-pointer ${tableLegs === 'wood' ? 'bg-amber-600 text-neutral-950' : 'text-zinc-400'}`}
+                            className={`py-1.5 text-[10px] font-bold rounded cursor-pointer leading-tight text-center ${tableLegs === 'wood' ? 'bg-amber-600 text-neutral-950' : 'text-zinc-400'}`}
                           >
-                            Pilar Rústico
+                            Pilar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTableLegs('x_wood')}
+                            className={`py-1.5 text-[10px] font-bold rounded cursor-pointer leading-tight text-center ${tableLegs === 'x_wood' ? 'bg-amber-600 text-neutral-950' : 'text-zinc-400'}`}
+                          >
+                            Pés em X
                           </button>
                         </div>
                       </div>
@@ -6339,6 +6459,10 @@ ${itemRows}
                         const legVol = 4 * (0.10 * 0.10 * 0.75);
                         legCost = legVol * woodPriceM3;
                         woodCost += legCost;
+                      } else if (tableLegs === 'x_wood') {
+                        const legVol = 2 * 2 * (0.08 * 0.12 * 0.85);
+                        legCost = legVol * woodPriceM3;
+                        woodCost += legCost;
                       } else {
                         legCost = 450;
                       }
@@ -6367,6 +6491,10 @@ ${itemRows}
                         if (tableLegs === 'wood') {
                           // wood legs for benches: 2 benches * 4 legs of 8x8 cm, height 45cm
                           const benchLegVol = 2 * 4 * (0.08 * 0.08 * 0.45);
+                          benchesLegCost = benchLegVol * woodPriceM3;
+                        } else if (tableLegs === 'x_wood') {
+                          // X wood legs for benches: 2 benches * 2 X frames * 2 beams of 6x8cm, height 45cm
+                          const benchLegVol = 2 * 2 * 2 * (0.06 * 0.08 * 0.45);
                           benchesLegCost = benchLegVol * woodPriceM3;
                         } else {
                           benchesLegCost = 280; // iron feet for benches
@@ -6436,7 +6564,7 @@ ${itemRows}
                                   tableFinish === 'epoxy' ? 'Resina Epóxi' : 
                                   tableFinish === 'varnish' ? 'Verniz Náutico' : 
                                   tableFinish === 'simple_varnish' ? 'Verniz Simples' : 'Óleo Mineral'
-                                }. Pés: ${tableLegs === 'iron' ? 'Aço Industrial' : 'Pilar de Madeira'}.${tableBenches ? ' Acompanha 2 bancos combinando.' : ''}${hasCustomOverride ? ' Preço ajustado manualmente pelo marceneiro.' : ''}`
+                                }. Pés: ${tableLegs === 'iron' ? 'Aço Industrial' : tableLegs === 'x_wood' ? 'Pés em X Rústico' : 'Pilar de Madeira'}.${tableBenches ? ' Acompanha 2 bancos combinando.' : ''}${hasCustomOverride ? ' Preço ajustado manualmente pelo marceneiro.' : ''}`
                               };
 
                               let finalProd = customProd;
@@ -8913,7 +9041,7 @@ ${itemRows}
               <div className="flex items-center justify-between border-b border-neutral-900 pb-2.5">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  <span className="text-xs font-black uppercase tracking-wider text-emerald-400">Imagem do Orçamento Pronta</span>
+                  <span className="text-xs font-black uppercase tracking-wider text-emerald-400">Exportação de Imagem (.PNG)</span>
                 </div>
                 <button 
                   type="button"
@@ -8924,39 +9052,85 @@ ${itemRows}
                 </button>
               </div>
 
-              <div className="flex-1 my-3 flex flex-col justify-center items-center overflow-hidden bg-neutral-900/60 p-2 rounded-2xl border border-neutral-900">
-                <span className="text-[9px] text-zinc-500 uppercase font-bold tracking-widest mb-1.5 animate-pulse">ℹ️ Toque e segure para Opções Celular</span>
+              {/* TEST & COMPATIBILITY MONITOR FOR ANDROID / APK WEBVIEW */}
+              <div className="bg-neutral-900/90 border border-neutral-800 p-3 rounded-2xl text-left space-y-1.5 mt-2.5">
+                <div className="flex justify-between items-center">
+                  <span className="text-[9.5px] font-black text-amber-500 uppercase tracking-wider">🛠️ CENTRAL DE COMPATIBILIDADE ANDROID / APK</span>
+                  <span className="text-[8px] bg-amber-950 text-amber-500 px-1.5 py-0.5 rounded font-mono font-bold">XIAOMI & REDMI NOTE 11 TEST</span>
+                </div>
+                <p className="text-[9px] text-zinc-300 leading-relaxed font-semibold">
+                  No Android (dentro de aplicativos instalados por APK), o sistema de segurança da WebView costuma bloquear cliques diretos em links de download.
+                </p>
+                <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[8.5px] text-zinc-400">
+                  <div className="bg-neutral-955 p-1.5 rounded border border-neutral-850">
+                    <span className="text-[8px] text-zinc-500 uppercase block">Downloads Diretos</span>
+                    <span className="text-red-400 font-extrabold font-bold">⚠️ Bloqueado pela WebView</span>
+                  </div>
+                  <div className="bg-neutral-955 p-1.5 rounded border border-neutral-850">
+                    <span className="text-[8px] text-zinc-500 uppercase block">Método de Sucesso</span>
+                    <span className="text-emerald-400 font-extrabold font-bold">✓ Toque Longo / Área de Transf.</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex-1 my-3 flex flex-col justify-center items-center overflow-hidden bg-neutral-900/60 p-2 rounded-2xl border border-neutral-900 relative">
+                {/* Visual guidance indicator */}
+                <div className="absolute top-4 left-4 right-4 z-10 bg-neutral-950/90 border border-emerald-900/50 p-2 rounded-xl text-center shadow-md pointer-events-none animate-pulse">
+                  <span className="text-[9.5px] text-emerald-400 uppercase font-black tracking-wider block">👉 SEGURE O DEDO SOBRE A IMAGEM ABAIXO</span>
+                  <span className="text-[8px] text-zinc-400 block mt-0.5">Mantenha pressionado para "Fazer download da imagem" ou "Compartilhar" nativamente!</span>
+                </div>
                 
                 {/* Scrollable container for the image so they can scroll to review it */}
-                <div className="w-full flex-1 overflow-auto rounded-xl flex items-start justify-center p-1.5 border border-dashed border-neutral-800 bg-neutral-900">
+                <div className="w-full flex-1 overflow-auto rounded-xl flex items-start justify-center p-1.5 pt-12 border border-dashed border-neutral-800 bg-neutral-900">
                   <img 
                     src={generatedImg} 
                     alt="Orçamento Impresso" 
-                    className="max-w-full h-auto object-contain rounded shadow-lg touch-auto"
+                    className="max-w-full h-auto object-contain rounded shadow-lg touch-auto cursor-pointer"
                     referrerPolicy="no-referrer"
+                    style={{ WebkitTouchCallout: 'default' }} // Enables standard callout menu on long-press in iOS/Android
                   />
                 </div>
               </div>
 
               <div className="space-y-2 flex-shrink-0">
-                <div className="bg-neutral-900/80 p-2 rounded-xl text-[9px] text-zinc-400 leading-normal text-start border border-neutral-850">
-                  💡 <strong>OPÇÕES DO SMARTPHONE:</strong> No seu celular, você pode tocar e manter o dedo pressionado sobre a imagem acima para salvá-la direto nas fotos ou compartilhá-la. Ou use as ações rápidas:
+                <div className="grid grid-cols-2 gap-2">
+                  <button 
+                    type="button"
+                    onClick={handleCopyImageToClipboard}
+                    className="bg-amber-500 hover:bg-amber-400 text-neutral-950 py-3 rounded-xl text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow font-black"
+                  >
+                    <span>📋 Copiar Imagem (Colar no Whats)</span>
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      if (generatedWhatsApptext) {
+                        copyToClipboard(generatedWhatsApptext);
+                        triggerNotification('✓ Texto formatado copiado! Só colar no WhatsApp.');
+                      } else {
+                        triggerNotification('Sem texto para copiar.');
+                      }
+                    }}
+                    className="bg-neutral-800 hover:bg-neutral-750 text-zinc-200 py-3 rounded-xl text-[10px] uppercase tracking-wider font-extrabold flex items-center justify-center gap-1"
+                  >
+                    <span>💬 Copiar Texto Formatado</span>
+                  </button>
                 </div>
 
                 <div className="flex gap-2 font-sans font-black">
                   <button 
                     type="button"
                     onClick={handleShareImage}
-                    className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 py-3 rounded-2xl text-[10.5px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow font-bold"
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-neutral-950 py-3 rounded-xl text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow font-black"
                   >
-                    <span>💬 Compartilhar (WhatsApp / Mídias)</span>
+                    <span>🔗 Compartilhamento Padrão</span>
                   </button>
                   <button 
                     type="button"
                     onClick={triggerDownloadImage}
-                    className="bg-neutral-800 hover:bg-neutral-750 text-zinc-200 px-4.5 rounded-2xl text-[10.5px] uppercase tracking-wider font-extrabold"
+                    className="bg-neutral-900 hover:bg-neutral-850 text-zinc-400 px-4 rounded-xl text-[10px] uppercase tracking-wider font-extrabold border border-neutral-800"
                   >
-                    Salvar Arquivo
+                    Download Web
                   </button>
                 </div>
               </div>
@@ -9067,6 +9241,155 @@ ${itemRows}
                 </div>
               </div>
             </div>
+          )}
+
+          {/* PRODUCT EDIT OVERLAY MODAL */}
+          {editingProduct && (
+            <>
+              {/* Semi-transparent Backdrop */}
+              <div 
+                className="absolute inset-0 bg-neutral-950/85 backdrop-blur-sm z-[110] animate-fade-in"
+                onClick={() => setEditingProduct(null)}
+              />
+              <div className="absolute inset-x-0 bottom-0 top-12 bg-neutral-900 rounded-t-[2rem] z-[120] p-5 pb-7 flex flex-col justify-between border-t border-neutral-800 shadow-2xl animate-slide-up overflow-hidden">
+                <div className="flex-1 flex flex-col justify-between overflow-y-auto pr-1">
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center border-b border-neutral-800 pb-2.5">
+                      <span className="font-extrabold text-amber-500 text-xs uppercase tracking-wider font-sans flex items-center gap-1.5">📝 Editar Material</span>
+                      <button 
+                        onClick={() => setEditingProduct(null)}
+                        className="text-zinc-500 hover:text-zinc-300 text-[10px] uppercase font-bold bg-neutral-950 border border-neutral-850 px-2.5 py-1 rounded-lg"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+
+                    <div className="space-y-3.5 pt-1">
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider text-amber-500 font-bold block mb-1">Nome do Produto</label>
+                        <input 
+                          type="text" 
+                          placeholder="Ex: Pilar de Eucalipto"
+                          value={editProdName}
+                          onChange={(e) => setEditProdName(e.target.value)}
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-150 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-sans font-bold"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3.5">
+                        <div>
+                          <label className="text-[10px] uppercase tracking-wider text-amber-500 font-bold block mb-1">Código SKU único</label>
+                          <input 
+                            type="text" 
+                            placeholder="Ex: PIL-1416"
+                            value={editProdCode}
+                            onChange={(e) => setEditProdCode(e.target.value.toUpperCase())}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-150 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-mono"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[10px] uppercase tracking-wider text-amber-500 font-bold block mb-1">Tipo de Unidade</label>
+                          <select
+                            value={editProdUnit}
+                            onChange={(e) => setEditProdUnit(e.target.value as UnitType)}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-300 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-sans font-bold h-11"
+                          >
+                            <option value="M3">M3 (Metro Cúbico)</option>
+                            <option value="TABUA">TÁBUA (cm Largura * m linear)</option>
+                            <option value="PRANCHA">PRANCHA (cm Largura * m linear)</option>
+                            <option value="M">M (Metro Linear)</option>
+                            <option value="UN">UN (Unidade)</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider text-amber-500 font-bold block mb-1">Preço (R$)</label>
+                        <input 
+                          type="number" 
+                          placeholder="Ex: 2200"
+                          value={editProdPrice}
+                          onChange={(e) => setEditProdPrice(e.target.value)}
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-amber-500 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-mono font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider text-amber-500 font-bold block mb-1">Descrição do Material</label>
+                        <textarea 
+                          rows={3}
+                          placeholder="Ex: Madeira serrada tratada de eucalipto seco em estufa."
+                          value={editProdDesc}
+                          onChange={(e) => setEditProdDesc(e.target.value)}
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-150 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-sans resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-4 border-t border-neutral-800/80 grid grid-cols-2 gap-3.5 shrink-0 mt-6">
+                    <button
+                      type="button"
+                      onClick={() => setEditingProduct(null)}
+                      className="bg-neutral-800 hover:bg-neutral-750 text-zinc-400 font-bold py-3.5 rounded-xl text-xs sm:text-sm uppercase cursor-pointer select-none transition-all active:scale-95 text-center"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveEditProduct}
+                      className="bg-amber-600 hover:bg-amber-500 text-neutral-950 font-black py-3.5 rounded-xl text-xs sm:text-sm uppercase cursor-pointer select-none transition-all active:scale-95 text-center"
+                    >
+                      Salvar Alterações
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* PRODUCT DELETE CONFIRMATION MODAL */}
+          {productToDelete && (
+            <>
+              {/* Dark backdrop */}
+              <div 
+                className="absolute inset-0 bg-neutral-950/85 backdrop-blur-sm z-[130] animate-fade-in" 
+                onClick={() => setProductToDelete(null)}
+              />
+              <div className="absolute inset-x-4 bottom-6 bg-neutral-900 rounded-2xl z-[140] p-5 flex flex-col gap-4 border border-neutral-800 shadow-2xl animate-scale-up">
+                <div className="flex items-start gap-3">
+                  <div className="p-2.5 bg-rose-955/20 text-rose-500 rounded-xl border border-rose-900/30 shrink-0">
+                    <Trash2 className="w-5 h-5 stroke-[2.5]" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="font-extrabold text-zinc-100 text-sm block">Excluir Material?</span>
+                    <p className="text-xs text-zinc-400 leading-relaxed font-medium">
+                      Tem certeza que deseja remover <strong className="text-zinc-200">"{productToDelete.name}"</strong>? Esta ação é irreversível e o material será excluído fisicamente do banco de dados local.
+                    </p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setProductToDelete(null)}
+                    className="w-full py-3.5 rounded-xl bg-neutral-800 hover:bg-neutral-750 text-zinc-300 font-bold text-xs uppercase cursor-pointer select-none transition-all active:scale-95 text-center border border-neutral-750"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleDeleteProduct(productToDelete.id);
+                      setProductToDelete(null);
+                    }}
+                    className="w-full py-3.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs uppercase cursor-pointer select-none transition-all active:scale-95 text-center border border-rose-500"
+                  >
+                    Confirmar Exclusão
+                  </button>
+                </div>
+              </div>
+            </>
           )}
 
         </div>
