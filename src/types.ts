@@ -7,6 +7,7 @@ export interface Client {
   observations: string;
   createdAt: string;
   totalSpent: number;
+  gpsCoords?: string;
 }
 
 export type UnitType = 'UN' | 'M' | 'M3' | 'TABUA' | 'PRANCHA';
@@ -49,6 +50,8 @@ export interface Budget {
   subtotal: number;
   total: number;
   version: number;
+  gpsCoords?: string;
+  woodPhoto?: string;
   parentVersionId?: string; // For tracing duplicate/version history
   updateHistory: {
     timestamp: string;
