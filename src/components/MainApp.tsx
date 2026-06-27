@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { toPng } from 'html-to-image';
+import { motion, AnimatePresence } from 'motion/react';
 import { 
   TrendingUp, Users, ShoppingBag, FileText, UploadCloud, 
   CheckCircle2, AlertTriangle, Trash2, Copy, Plus, Search, 
@@ -36,11 +37,49 @@ export function formatBrazilianPhoneNumber(raw: string): string {
   return `(${cleaned.substring(0, 2)}) ${cleaned.substring(2, 7)}-${cleaned.substring(7, 11)}`;
 }
 
-interface PhoneSimulatorProps {
+interface MainAppProps {
   onAddLog?: (log: string) => void;
 }
 
-export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorProps = {}) {
+export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
+  // Animated startup states for smooth Android boot experience
+  const [isInitializing, setIsInitializing] = useState<boolean>(true);
+  const [initStep, setInitStep] = useState<number>(0);
+  const [initPercent, setInitPercent] = useState<number>(0);
+
+  useEffect(() => {
+    onAddLog('🚀 Inicializando OrçaFácil Pro em ambiente nativo Android (Capacitor WebView)');
+    const stepsConfig = [
+      { text: 'Conectando ao banco local SQLite...', duration: 350, percent: 25 },
+      { text: 'Verificando permissões de armazenamento...', duration: 400, percent: 55 },
+      { text: 'Carregando 12 esquemas e tabelas de cubagem...', duration: 350, percent: 85 },
+      { text: 'Sincronizando orçamentos com a nuvem...', duration: 300, percent: 100 },
+    ];
+    
+    let currentIdx = 0;
+    const runNextStep = () => {
+      if (currentIdx < stepsConfig.length) {
+        const step = stepsConfig[currentIdx];
+        setInitStep(currentIdx);
+        setInitPercent(step.percent);
+        onAddLog(`[Startup] ${step.text}`);
+        
+        setTimeout(() => {
+          currentIdx++;
+          runNextStep();
+        }, step.duration);
+      } else {
+        // Let it stay at 100% a tiny bit for perfect smoothness
+        setTimeout(() => {
+          setIsInitializing(false);
+          onAddLog('✓ OrçaFácil Pro inicializado com sucesso e pronto para uso!');
+        }, 150);
+      }
+    };
+    
+    runNextStep();
+  }, []);
+
   // App states (replicates client SQLite store with LocalStorage persistence)
   const [products, setProducts] = useState<Product[]>(() => {
     try {
@@ -2668,6 +2707,133 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
     }
   };
 
+  // Direct Native Share: Generates image offscreen and immediately launches native share sheet (extremely practical for Android)
+  const handleDirectShareImage = async (elementId: string) => {
+    const el = document.getElementById(elementId);
+    if (!el) {
+      triggerNotification('Erro ao renderizar imagem: container não foi localizado.');
+      return;
+    }
+    
+    setIsGeneratingImg(true);
+    triggerNotification('Gerando imagem para compartilhamento direto...');
+    
+    const offscreenContainer = document.createElement('div');
+    offscreenContainer.style.position = 'absolute';
+    offscreenContainer.style.left = '-9999px';
+    offscreenContainer.style.top = '-9999px';
+    offscreenContainer.style.width = '380px';
+    offscreenContainer.style.height = 'auto';
+    offscreenContainer.style.overflow = 'visible';
+    offscreenContainer.style.background = '#f4f4f5';
+    offscreenContainer.style.zIndex = '-9999';
+    
+    try {
+      const clone = el.cloneNode(true) as HTMLElement;
+      clone.id = `${elementId}-clone-snapshot`;
+      
+      clone.style.height = 'auto';
+      clone.style.maxHeight = 'none';
+      clone.style.overflow = 'visible';
+      clone.style.width = '380px';
+      clone.style.padding = '16px';
+      clone.style.boxSizing = 'border-box';
+      clone.style.backgroundColor = '#f4f4f5';
+      
+      clone.className = clone.className
+        .replace(/\boverflow-y-auto\b/g, '')
+        .replace(/\bflex-1\b/g, '')
+        .replace(/\bmax-h-\S+/g, '')
+        .replace(/\bh-\S+/g, '');
+      
+      offscreenContainer.appendChild(clone);
+      document.body.appendChild(offscreenContainer);
+      
+      await new Promise(r => setTimeout(r, 180));
+      
+      const dataUrl = await toPng(clone, {
+        backgroundColor: '#f4f4f5',
+        pixelRatio: 2.0,
+        cacheBust: true,
+        style: {
+          transform: 'none',
+          transformOrigin: 'top left',
+          width: '380px',
+          height: 'auto',
+          overflow: 'visible'
+        }
+      });
+
+      // Cleanup offscreen container before async share calls
+      if (document.body.contains(offscreenContainer)) {
+        document.body.removeChild(offscreenContainer);
+      }
+
+      // Check if we are on Capacitor (native APK)
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const base64Parts = dataUrl.split(',');
+          const base64Data = base64Parts.length > 1 ? base64Parts[1] : base64Parts[0];
+          const fileName = `Orcamento_Impresso_${Date.now()}.png`;
+          
+          const result = await Filesystem.writeFile({
+            path: fileName,
+            data: base64Data,
+            directory: Directory.Documents
+          });
+          
+          if (await Share.canShare()) {
+            await Share.share({
+              title: 'Enviar Orçamento',
+              text: 'Orçamento gerado pelo OrçaFácil Pro.',
+              url: result.uri,
+              dialogTitle: 'Compartilhar Orçamento'
+            });
+            triggerNotification('✓ Compartilhamento nativo iniciado!');
+            setIsGeneratingImg(false);
+            return;
+          }
+        } catch (capErr) {
+          console.error('Direct Capacitor sharing failed:', capErr);
+        }
+      }
+
+      // Web/PWA native sharing fallback (works beautifully on Chrome/Safari Android)
+      const file = base64ToFile(dataUrl, 'orcamento-orcafacil-pro.png');
+      let sharedWeb = false;
+      
+      try {
+        if (typeof navigator !== 'undefined' && navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({
+            files: [file],
+            title: 'Orçamento - OrçaFacil Pro',
+            text: 'Seu orçamento de madeira pronto em anexo!'
+          });
+          sharedWeb = true;
+        }
+      } catch (shareErr) {
+        console.warn('Direct web share aborted or not supported:', shareErr);
+      }
+
+      if (sharedWeb) {
+        triggerNotification('✓ Compartilhamento iniciado!');
+      } else {
+        // Fallback: open the preview shield so they can copy/download manually
+        setGeneratedImg(dataUrl);
+        triggerNotification('📸 Imagem gerada! Clique em Compartilhar ou Salvar.');
+      }
+      
+    } catch (err) {
+      console.error('Error in handleDirectShareImage:', err);
+      triggerNotification('Erro ao gerar imagem do orçamento.');
+    } finally {
+      if (document.body.contains(offscreenContainer)) {
+        document.body.removeChild(offscreenContainer);
+      }
+      setIsGeneratingImg(false);
+    }
+  };
+
   // Offline helper to convert base64 dataUrl directly to File without fetch network queries (critical for compiled APK webviews)
   const base64ToFile = (base64DataUrl: string, filename: string): File => {
     const arr = base64DataUrl.split(',');
@@ -2684,6 +2850,13 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
 
   const handleShareImage = async () => {
     if (!generatedImg) return;
+    
+    if (Capacitor.isNativePlatform()) {
+      // In native platform, triggerDownloadImage handles both file saving and native share sheet
+      await triggerDownloadImage();
+      return;
+    }
+
     try {
       // Convert safely without fetch to prevent WebView CSP/origin blocks
       const file = base64ToFile(generatedImg, 'orcamento-orcafacil-pro.png');
@@ -2704,6 +2877,7 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
             title: 'Orçamento - OrçaFacil Pro',
             text: 'Seu orçamento de madeira pronto em anexo!'
           });
+          triggerNotification('✓ Compartilhamento nativo iniciado!');
           return;
         } catch (shareErr) {
           console.warn('Share file aborted or not supported:', shareErr);
@@ -3454,7 +3628,59 @@ ${itemRows}
   );
 
   return (
-    <div className="w-full md:max-w-[420px] mx-auto h-[100dvh] md:h-[840px] md:max-h-[92vh] md:my-auto bg-neutral-900 text-neutral-100 flex flex-col font-sans relative text-sm md:shadow-2xl md:ring-8 md:ring-neutral-950 md:rounded-[2.8rem] overflow-hidden border border-neutral-800/50">
+    <div className="w-full h-screen bg-neutral-900 text-neutral-100 flex flex-col font-sans relative text-sm overflow-hidden">
+      
+      {/* Animated Startup Splash Loader */}
+      <AnimatePresence>
+        {isInitializing && (
+          <motion.div 
+            key="splash-screen"
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.35, ease: 'easeInOut' }}
+            className="absolute inset-0 bg-neutral-950 z-[999] flex flex-col items-center justify-center p-6 text-center"
+          >
+            <div className="flex flex-col items-center max-w-xs w-full">
+              {/* Logo icon */}
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center shadow-2xl shadow-amber-500/20 mb-6 border border-amber-450/35">
+                <span className="text-neutral-950 font-black text-2xl font-sans">O</span>
+              </div>
+              
+              <h1 className="text-xl font-black text-zinc-150 uppercase tracking-widest font-sans">OrçaFácil Pro</h1>
+              <p className="text-xs text-zinc-400 mt-1 font-semibold">Sistema de Cubagem de Madeira</p>
+              
+              {/* Loading steps bar */}
+              <div className="w-full bg-neutral-900 h-1.5 rounded-full mt-10 overflow-hidden border border-neutral-850">
+                <motion.div 
+                  className="bg-gradient-to-r from-amber-500 to-amber-600 h-full rounded-full"
+                  animate={{ width: `${initPercent}%` }}
+                  transition={{ duration: 0.35, ease: 'easeOut' }}
+                />
+              </div>
+              
+              {/* Animated Step Messages */}
+              <div className="h-6 mt-3 flex items-center justify-center">
+                <AnimatePresence mode="wait">
+                  <motion.p 
+                    key={initStep}
+                    initial={{ opacity: 0, y: 5 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -5 }}
+                    className="text-[10px] text-amber-500 font-mono font-bold uppercase tracking-wider"
+                  >
+                    {initStep === 0 && 'Conectando ao banco local SQLite...'}
+                    {initStep === 1 && 'Verificando permissões do Android...'}
+                    {initStep === 2 && 'Carregando esquemas e tabelas de cubagem...'}
+                    {initStep === 3 && 'Sincronizando orçamentos com a nuvem...'}
+                  </motion.p>
+                </AnimatePresence>
+              </div>
+              
+              <span className="text-[9px] text-zinc-600 font-mono mt-16">Versão Nativa v1.1.0 (Capacitor Android)</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       
       {/* Top Header App Bar */}
       <div className="px-4 py-3.5 bg-neutral-950 border-b border-neutral-800 flex justify-between items-center shrink-0">
@@ -3537,8 +3763,16 @@ ${itemRows}
       )}
 
       {/* Advanced Technical Settings panel */}
-      {showAdmin && (
-        <div className="absolute inset-x-0 bottom-0 top-[60px] bg-neutral-900 border-t border-neutral-800 z-[80] flex flex-col p-4 overflow-y-auto">
+      <AnimatePresence>
+        {showAdmin && (
+          <motion.div 
+            key="admin-panel"
+            initial={{ opacity: 0, y: 100 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 100 }}
+            transition={{ duration: 0.28, ease: 'easeOut' }}
+            className="absolute inset-x-0 bottom-0 top-[60px] bg-neutral-900 border-t border-neutral-800 z-[80] flex flex-col p-4 overflow-y-auto"
+          >
           <div className="flex justify-between items-center border-b border-neutral-800 pb-2 mb-3">
             <div>
               <span className="font-bold text-zinc-200 text-sm">Painel Técnico SQLite</span>
@@ -4066,15 +4300,23 @@ ${itemRows}
               </div>
             )}
           </div>
-        </div>
-      )}
+        </motion.div>
+      )}</AnimatePresence>
 
       {/* Main Content Render */}
       <div className="flex-1 flex flex-col p-4 overflow-hidden min-h-0 bg-neutral-900 relative">
+        <AnimatePresence mode="wait">
 
         {/* DASHBOARD TAB */}
         {activeTab === 'dashboard' && !isCreatingBudget && !viewingBudget && !isAddingClient && (
-          <div className="flex-col flex gap-4.5 h-full overflow-y-auto pr-1 relative">
+          <motion.div 
+            key="dashboard"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            className="flex-col flex gap-4.5 h-full overflow-y-auto pr-1 relative"
+          >
             {/* Floating Quick Guide Modal Overlay when active */}
             {showQuickGuide && (
               <div className="absolute inset-0 bg-neutral-950/80 backdrop-blur-sm z-[95] flex items-center justify-center p-4">
@@ -4308,12 +4550,19 @@ ${itemRows}
                 )}
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
 
         {/* CLIENTS TAB */}
-          {activeTab === 'clients' && !isAddingClient && (
-            <div className="flex flex-col gap-3.5 h-full overflow-hidden min-h-0">
+        {activeTab === 'clients' && !isAddingClient && (
+          <motion.div 
+            key="clients"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
+            className="flex flex-col gap-3.5 h-full overflow-hidden min-h-0"
+          >
               <div className="flex justify-between items-center bg-neutral-900 border border-neutral-800/60 p-3 rounded-2xl shadow-sm">
                 <div className="flex items-center gap-2">
                   <Users className="w-5 h-5 text-emerald-400" />
@@ -4377,12 +4626,19 @@ ${itemRows}
                   ))
                 )}
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* ADD CLIENT FORM */}
           {isAddingClient && (
-            <div className="p-1 flex flex-col gap-4 h-full justify-between">
+            <motion.div 
+              key="add-client-form"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="p-1 flex flex-col gap-4 h-full justify-between"
+            >
               <div className="flex flex-col gap-4">
                 <div className="flex items-center gap-1.5 border-b border-neutral-800 pb-3">
                   <button onClick={() => setIsAddingClient(false)} className="text-zinc-300 hover:text-zinc-100 p-1 bg-neutral-850 rounded-lg text-xs">← Voltar</button>
@@ -4462,12 +4718,19 @@ ${itemRows}
                   As regras de integridade do SQLite garantem que o UUID do cliente seja auto-resolvido preventivamente e sem colisão mesmo sem redes.
                 </span>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* CUSTOMER DETAILS MODAL */}
           {selectedClient && (
-            <div className="absolute inset-x-0 bottom-0 top-12 bg-neutral-900 rounded-t-3xl z-40 p-4.5 flex flex-col justify-between border-t border-neutral-800 animate-slide-up overflow-hidden">
+            <motion.div 
+              key="client-details"
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+              transition={{ duration: 0.28, ease: 'easeOut' }}
+              className="absolute inset-x-0 bottom-0 top-12 bg-neutral-900 rounded-t-3xl z-40 p-4.5 flex flex-col justify-between border-t border-neutral-800 overflow-hidden"
+            >
               {isEditingClient ? (
                 /* EDIT FORM */
                 <div className="flex-1 flex flex-col justify-between overflow-y-auto">
@@ -4682,12 +4945,19 @@ ${itemRows}
                   </div>
                 </div>
               )}
-            </div>
+            </motion.div>
           )}
 
           {/* PRODUCTS CATALOG TAB */}
           {activeTab === 'products' && (
-            <div className="flex flex-col gap-3.5 h-full overflow-y-auto pr-1 relative">
+            <motion.div 
+              key="products"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="flex flex-col gap-3.5 h-full overflow-y-auto pr-1 relative"
+            >
               <div className="flex justify-between items-center bg-neutral-900 border border-neutral-800/60 p-3 rounded-2xl">
                 <div className="flex items-center gap-2">
                   <ShoppingBag className="w-5 h-5 text-amber-500" />
@@ -5238,12 +5508,19 @@ ${itemRows}
             </div>
           )}
 
-        </div>
+        </motion.div>
       )}
 
           {/* CALCULATORS AND PROJECTS TAB */}
           {activeTab === 'calculators' && (
-            <div className="flex flex-col gap-3.5 h-full overflow-y-auto pr-1">
+            <motion.div 
+              key="calculators"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="flex flex-col gap-3.5 h-full overflow-y-auto pr-1"
+            >
               <div className="flex justify-between items-center bg-neutral-900 border border-neutral-800/60 p-3 rounded-2xl">
                 <div className="flex items-center gap-2">
                   <Calculator className="w-5 h-5 text-amber-500" />
@@ -6654,12 +6931,19 @@ ${itemRows}
                   </div>
                 </div>
               )}
-            </div>
+            </motion.div>
           )}
 
           {/* IMPORT TXT TAB */}
           {activeTab === 'import' && (
-            <div className="flex flex-col gap-2.5 h-full">
+            <motion.div 
+              key="import"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="flex flex-col gap-2.5 h-full"
+            >
               <h3 className="font-semibold text-sm text-emerald-400">Importação de Preços</h3>
               
               <div className="bg-neutral-950 p-2 rounded-lg border border-neutral-800 text-[9.5px] text-zinc-400 space-y-1">
@@ -6756,12 +7040,19 @@ ${itemRows}
                   Efetuar Análise do Arquivo
                 </button>
               )}
-            </div>
+            </motion.div>
           )}
 
           {/* BUDGETS LISTING / FLOW TAB */}
           {activeTab === 'budgets' && !isCreatingBudget && !viewingBudget && (
-            <div className="flex flex-col gap-3.5 h-full overflow-hidden min-h-0">
+            <motion.div 
+              key="budgets"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="flex flex-col gap-3.5 h-full overflow-hidden min-h-0"
+            >
               <div className="flex justify-between items-center bg-neutral-900 border border-neutral-800/60 p-3 rounded-2xl">
                 <div className="flex items-center gap-2">
                   <FileText className="w-5 h-5 text-emerald-400" />
@@ -6882,12 +7173,19 @@ ${itemRows}
                   ));
                 })()}
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* CREATE BUDGET WIZARD SHEET */}
           {isCreatingBudget && (
-            <div className="absolute inset-0 bg-neutral-900 z-50 p-4 flex flex-col justify-between overflow-y-auto">
+            <motion.div 
+              key="create-budget"
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+              transition={{ duration: 0.28, ease: 'easeOut' }}
+              className="absolute inset-0 bg-neutral-900 z-50 p-4 flex flex-col justify-between overflow-y-auto"
+            >
               
               {/* Wizard Nav */}
               <div className="flex items-center justify-between border-b border-neutral-800/80 pb-2.5">
@@ -8040,12 +8338,19 @@ ${itemRows}
                   </div>
                 </div>
               )}
-            </div>
+            </motion.div>
           )}
 
           {/* VIEWING BUDGET / WHATSAPP & PDF SHEET */}
           {viewingBudget && (
-            <div className="absolute inset-0 bg-neutral-900 z-50 p-4 flex flex-col justify-between overflow-y-auto">
+            <motion.div 
+              key="viewing-budget"
+              initial={{ opacity: 0, y: 50 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 50 }}
+              transition={{ duration: 0.28, ease: 'easeOut' }}
+              className="absolute inset-0 bg-neutral-900 z-50 p-4 flex flex-col justify-between overflow-y-auto"
+            >
               
               <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
                 <span className="font-mono text-zinc-300 font-bold text-xs">{viewingBudget.number}</span>
@@ -8328,28 +8633,37 @@ ${itemRows}
                     </div>
                   </div>
 
-                  <div className="pt-2 flex flex-col gap-1 border-t border-zinc-200 font-sans">
+                  <div className="pt-2 flex flex-col gap-2 border-t border-zinc-200 font-sans">
+                    <button 
+                      type="button"
+                      onClick={() => handleDirectShareImage('registered-invoice-card')}
+                      disabled={isGeneratingImg}
+                      className="w-full bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-black py-3 rounded-xl text-xs cursor-pointer text-center flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow"
+                    >
+                      <span>⚡ COMPARTILHAR IMAGEM DIRETO (WHATSAPP)</span>
+                    </button>
+
                     <div className="flex gap-2">
                       <button 
                         type="button"
                         onClick={() => handleExportAsImage('registered-invoice-card')}
                         disabled={isGeneratingImg}
-                        className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold p-2 rounded text-[9.5px] cursor-pointer text-center flex items-center justify-center gap-1 transition-all"
+                        className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-zinc-200 font-bold p-2 rounded text-[9.5px] cursor-pointer text-center flex items-center justify-center gap-1 transition-all"
                       >
-                        📸 Gerar Imagem (.PNG)
+                        📸 Pré-visualizar (.PNG)
                       </button>
                       <button 
                         type="button"
                         onClick={handleDownloadPDF}
-                        className="flex-1 bg-amber-700 hover:bg-amber-600 text-white font-extrabold p-2 rounded text-[9.5px] cursor-pointer text-center"
+                        className="flex-1 bg-zinc-200 hover:bg-zinc-300 text-zinc-800 font-bold p-2 rounded text-[9.5px] cursor-pointer text-center"
                       >
-                        {pdfDownloaded ? '✓ Documento Baixado' : '⚡ Descarregar PDF/HTML'}
+                        {pdfDownloaded ? '✓ Documento Baixado' : '📄 Descarregar PDF/HTML'}
                       </button>
                     </div>
                     <button 
                       type="button"
                       onClick={() => setShowPdf(false)}
-                      className="bg-zinc-200 hover:bg-zinc-300 text-zinc-700 py-1.5 rounded text-[9px] cursor-pointer font-bold w-full"
+                      className="bg-zinc-300 hover:bg-zinc-400 text-zinc-800 py-2 rounded-lg text-[9px] cursor-pointer font-bold w-full transition-all"
                     >
                       Fechar Preview
                     </button>
@@ -8357,12 +8671,19 @@ ${itemRows}
                 </div>
               )}
 
-            </div>
+            </motion.div>
           )}
 
           {/* DRAFT PDF EXPORT OVERLAY VIEW (Aesthetic business document preview without registry) */}
           {showDraftPdf && (
-            <div className="absolute inset-x-0 bottom-0 top-1/4 bg-zinc-100 text-zinc-900 rounded-t-2xl z-[99] p-4 flex flex-col justify-between shadow-2xl animate-fade-in border-t border-zinc-300 font-sans">
+            <motion.div 
+              key="draft-pdf-overlay"
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              transition={{ duration: 0.28, ease: 'easeOut' }}
+              className="absolute inset-x-0 bottom-0 top-1/4 bg-zinc-100 text-zinc-900 rounded-t-2xl z-[99] p-4 flex flex-col justify-between shadow-2xl border-t border-zinc-300 font-sans"
+            >
               <div id="draft-invoice-card" className="space-y-3 flex-1 overflow-y-auto bg-zinc-100 pr-0.5 pt-4">
                 <div className="flex justify-between items-center border-b border-zinc-300 pb-1.5">
                   <div className="text-left">
@@ -8489,18 +8810,28 @@ ${itemRows}
                     
                     copyToClipboard(draftText);
                   }}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-black p-2.5 rounded-xl text-[10px] uppercase cursor-pointer text-center flex items-center justify-center gap-1.5 shadow"
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-black p-2.5 rounded-xl text-[10px] uppercase cursor-pointer text-center flex items-center justify-center gap-1.5 shadow transition-all active:scale-95"
                 >
                   <span>💬 Copiar Mensagem para WhatsApp</span>
                 </button>
+
+                <button 
+                  type="button"
+                  onClick={() => handleDirectShareImage('draft-invoice-card')}
+                  disabled={isGeneratingImg}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-black py-3 rounded-xl text-xs cursor-pointer text-center flex items-center justify-center gap-1.5 transition-all active:scale-95 shadow"
+                >
+                  <span>⚡ COMPARTILHAR IMAGEM DIRETO (WHATSAPP)</span>
+                </button>
+
                 <div className="flex gap-2">
                   <button 
                     type="button"
                     onClick={() => handleExportAsImage('draft-invoice-card')}
                     disabled={isGeneratingImg}
-                    className="flex-1 bg-emerald-700 hover:bg-emerald-600 text-white font-extrabold py-2 rounded text-[9.5px] cursor-pointer text-center flex items-center justify-center gap-1"
+                    className="flex-1 bg-neutral-800 hover:bg-neutral-700 text-zinc-200 font-bold py-2 rounded text-[9.5px] cursor-pointer text-center flex items-center justify-center gap-1 transition-all"
                   >
-                    📸 Gerar Imagem (.PNG)
+                    📸 Pré-visualizar (.PNG)
                   </button>
                   <button 
                     type="button"
@@ -8616,20 +8947,20 @@ ${itemRows}
                         }
                       }
                     }}
-                    className="flex-grow bg-amber-700 hover:bg-amber-600 text-white font-bold py-2 rounded text-[9.5px] cursor-pointer text-center"
+                    className="flex-grow bg-zinc-200 hover:bg-zinc-300 text-zinc-800 font-bold py-2 rounded text-[9.5px] cursor-pointer text-center transition-all"
                   >
-                    ⚡ Descarregar PDF/HTML
+                    📄 Descarregar PDF/HTML
                   </button>
                   <button 
                     type="button"
                     onClick={() => setShowDraftPdf(false)}
-                    className="bg-zinc-300 text-zinc-700 px-4 py-2 rounded text-[9.5px] font-bold cursor-pointer hover:bg-zinc-400"
+                    className="bg-zinc-300 text-zinc-800 px-4 py-2 rounded text-[9.5px] font-bold cursor-pointer hover:bg-zinc-400 transition-all"
                   >
                     Fechar
                   </button>
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* WHATSAPP INTELLIGENT IMPORTER MODAL OVERLAY */}
@@ -9094,7 +9425,14 @@ ${itemRows}
 
           {/* HIGH FIDELITY EXPORTED IMAGE VIEWER SHIELD */}
           {generatedImg && (
-            <div className="absolute inset-x-0 bottom-0 top-[6%] bg-neutral-950 text-white rounded-t-3xl z-[100] p-4 flex flex-col justify-between shadow-2xl border-t border-neutral-800 animate-fade-in font-sans">
+            <motion.div 
+              key="generated-image-viewer"
+              initial={{ opacity: 0, y: 100 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 100 }}
+              transition={{ duration: 0.28, ease: 'easeOut' }}
+              className="absolute inset-x-0 bottom-0 top-[6%] bg-neutral-950 text-white rounded-t-3xl z-[100] p-4 flex flex-col justify-between shadow-2xl border-t border-neutral-800 font-sans"
+            >
               <div className="flex items-center justify-between border-b border-neutral-900 pb-2.5">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -9122,13 +9460,21 @@ ${itemRows}
                 </div>
               </div>
 
-              <div className="space-y-2 flex-shrink-0 font-sans font-black">
+              <div className="space-y-2 flex-shrink-0 font-sans font-black text-center">
+                <button 
+                  type="button"
+                  onClick={handleShareImage}
+                  className="w-full bg-emerald-500 hover:bg-emerald-400 text-neutral-950 py-4 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow font-black transition-all active:scale-95 cursor-pointer"
+                >
+                  <span>⚡ COMPARTILHAR IMAGEM (NATIVO / WHATSAPP)</span>
+                </button>
+
                 <button 
                   type="button"
                   onClick={handleShareWhatsApp}
-                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-neutral-950 py-3.5 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow font-black transition-all active:scale-95"
+                  className="w-full bg-neutral-900 hover:bg-neutral-850 text-emerald-400 py-3 rounded-xl text-[10.5px] uppercase tracking-wider flex items-center justify-center gap-1.5 border border-neutral-800 transition-all active:scale-95 cursor-pointer font-extrabold"
                 >
-                  <span>💬 Enviar para WhatsApp</span>
+                  <span>💬 Enviar Texto no WhatsApp</span>
                 </button>
 
                 <div className="grid grid-cols-2 gap-2">
@@ -9155,12 +9501,19 @@ ${itemRows}
                   </button>
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* DIAGNOSTIC SQLite SCHEMA TAB */}
           {activeTab === 'database' && (
-            <div className="flex flex-col gap-2.5 h-full">
+            <motion.div 
+              key="database"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.22, ease: 'easeOut' }}
+              className="flex flex-col gap-2.5 h-full"
+            >
               <div className="flex justify-between items-center">
                 <h3 className="font-semibold text-sm text-emerald-400">SQLite / Room Audit</h3>
                 <span className="text-[8.5px] bg-emerald-950 text-emerald-400 px-1 py-0.2 rounded font-mono">FÍSICO LOCAL</span>
@@ -9224,13 +9577,20 @@ ${itemRows}
                   </pre>
                 </div>
               )}
-            </div>
+            </motion.div>
           )}
 
           {/* CUSTOM DELETE CONFIRMATION OVERLAY */}
           {budgetToDeleteId && (
-            <div className="absolute inset-0 bg-neutral-950/85 z-[130] flex items-center justify-center p-4">
-              <div className="w-full max-w-xs bg-neutral-900 border border-neutral-800 rounded-2xl p-5 space-y-4 shadow-2xl relative select-none animate-in fade-in zoom-in-95 duration-150">
+            <motion.div 
+              key="delete-budget-modal"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="absolute inset-0 bg-neutral-950/85 z-[130] flex items-center justify-center p-4"
+            >
+              <div className="w-full max-w-xs bg-neutral-900 border border-neutral-800 rounded-2xl p-5 space-y-4 shadow-2xl relative select-none">
                 <div className="flex flex-col items-center text-center space-y-3">
                   <div className="w-12 h-12 rounded-full bg-rose-950/40 border border-rose-800/40 flex items-center justify-center text-rose-500 text-xl font-bold">
                     ⚠️
@@ -9261,18 +9621,31 @@ ${itemRows}
                   </button>
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {/* PRODUCT EDIT OVERLAY MODAL */}
           {editingProduct && (
-            <>
+            <motion.div
+              key="product-edit-modal-container"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.22 }}
+              className="absolute inset-0 z-50"
+            >
               {/* Semi-transparent Backdrop */}
               <div 
-                className="absolute inset-0 bg-neutral-950/85 backdrop-blur-sm z-[110] animate-fade-in"
+                className="absolute inset-0 bg-neutral-950/85 backdrop-blur-sm z-[110]"
                 onClick={() => setEditingProduct(null)}
               />
-              <div className="absolute inset-x-0 bottom-0 top-12 bg-neutral-900 rounded-t-[2rem] z-[120] p-5 pb-7 flex flex-col justify-between border-t border-neutral-800 shadow-2xl animate-slide-up overflow-hidden">
+              <motion.div 
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ duration: 0.28, ease: 'easeOut' }}
+                className="absolute inset-x-0 bottom-0 top-12 bg-neutral-900 rounded-t-[2rem] z-[120] p-5 pb-7 flex flex-col justify-between border-t border-neutral-800 shadow-2xl overflow-hidden"
+              >
                 <div className="flex-1 flex flex-col justify-between overflow-y-auto pr-1">
                   <div className="space-y-4">
                     <div className="flex justify-between items-center border-b border-neutral-800 pb-2.5">
@@ -9366,19 +9739,31 @@ ${itemRows}
                     </button>
                   </div>
                 </div>
-              </div>
-            </>
+              </motion.div>
+            </motion.div>
           )}
 
           {/* PRODUCT DELETE CONFIRMATION MODAL */}
           {productToDelete && (
-            <>
+            <motion.div
+              key="product-delete-modal-container"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="absolute inset-0 z-50 flex items-end justify-center p-4"
+            >
               {/* Dark backdrop */}
               <div 
-                className="absolute inset-0 bg-neutral-950/85 backdrop-blur-sm z-[130] animate-fade-in" 
+                className="absolute inset-0 bg-neutral-950/85 backdrop-blur-sm z-[130]" 
                 onClick={() => setProductToDelete(null)}
               />
-              <div className="absolute inset-x-4 bottom-6 bg-neutral-900 rounded-2xl z-[140] p-5 flex flex-col gap-4 border border-neutral-800 shadow-2xl animate-scale-up">
+              <motion.div 
+                initial={{ y: 100 }}
+                animate={{ y: 0 }}
+                exit={{ y: 100 }}
+                className="w-full max-w-md bg-neutral-900 rounded-2xl z-[140] p-5 flex flex-col gap-4 border border-neutral-800 shadow-2xl relative"
+              >
                 <div className="flex items-start gap-3">
                   <div className="p-2.5 bg-rose-955/20 text-rose-500 rounded-xl border border-rose-900/30 shrink-0">
                     <Trash2 className="w-5 h-5 stroke-[2.5]" />
@@ -9409,129 +9794,145 @@ ${itemRows}
                     Confirmar Exclusão
                   </button>
                 </div>
-              </div>
-            </>
+              </motion.div>
+            </motion.div>
           )}
 
+        </AnimatePresence>
         </div>
 
         {/* Sincronização / Backup Offline Modal */}
-        {showSyncInfoModal && (
-          <div className="absolute inset-0 bg-neutral-950/80 z-[110] flex items-end justify-center">
-            <div className="w-full bg-neutral-900 border-t border-neutral-800 rounded-t-[2rem] p-5 pb-8 space-y-4 shadow-2xl relative select-none max-h-[85%] overflow-y-auto">
-              {/* Header */}
-              <div className="flex justify-between items-center pb-2 border-b border-neutral-800">
-                <div className="flex items-center gap-2">
-                  <div className={`p-1.5 rounded-lg ${
-                    syncStatus === 'syncing' ? 'bg-amber-955/20 text-amber-500' :
-                    syncStatus === 'pending' ? 'bg-rose-955/20 text-rose-500' :
-                    'bg-emerald-955/20 text-emerald-500'
-                  }`}>
-                    <Activity className="w-4 h-4 animate-pulse" />
+        <AnimatePresence>
+          {showSyncInfoModal && (
+            <motion.div 
+              key="sync-modal-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-neutral-950/80 z-[110] flex items-end justify-center"
+            >
+              <motion.div 
+                key="sync-modal-body"
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+                className="w-full bg-neutral-900 border-t border-neutral-800 rounded-t-[2rem] p-5 pb-8 space-y-4 shadow-2xl relative select-none max-h-[85%] overflow-y-auto"
+              >
+                {/* Header */}
+                <div className="flex justify-between items-center pb-2 border-b border-neutral-800">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-1.5 rounded-lg ${
+                      syncStatus === 'syncing' ? 'bg-amber-955/20 text-amber-500' :
+                      syncStatus === 'pending' ? 'bg-rose-955/20 text-rose-500' :
+                      'bg-emerald-955/20 text-emerald-500'
+                    }`}>
+                      <Activity className="w-4 h-4 animate-pulse" />
+                    </div>
+                    <span className="font-extrabold text-xs uppercase tracking-wider text-zinc-100">Status de Sincronização</span>
                   </div>
-                  <span className="font-extrabold text-xs uppercase tracking-wider text-zinc-100">Status de Sincronização</span>
-                </div>
-                <button 
-                  onClick={() => setShowSyncInfoModal(false)}
-                  className="w-8 h-8 rounded-full bg-neutral-800 hover:bg-neutral-700 flex items-center justify-center font-bold text-zinc-300 hover:text-white transition-colors cursor-pointer text-lg leading-none"
-                >
-                  ×
-                </button>
-              </div>
-
-              {/* Connection Status Banner */}
-              <div className={`p-4 rounded-xl border flex items-start gap-3 ${
-                !isOnline 
-                  ? 'bg-rose-950/25 border-rose-900/40 text-rose-200' 
-                  : 'bg-emerald-950/20 border-emerald-900/45 text-emerald-250'
-              }`}>
-                <div className="mt-0.5 shrink-0">
-                  {isOnline ? (
-                    <Wifi className="w-4 h-4 text-emerald-400" />
-                  ) : (
-                    <WifiOff className="w-4 h-4 text-rose-500 animate-pulse" />
-                  )}
-                </div>
-                <div className="space-y-0.5">
-                  <span className="font-extrabold text-xs block">
-                    Dispositivo: {isOnline ? 'Conectado à Internet' : 'Funcionando 100% Offline'}
-                  </span>
-                  <p className="text-[10px] text-zinc-400 leading-normal">
-                    {isOnline 
-                      ? 'Você está conectado à nuvem. Dados gravados localmente são automaticamente sincronizados com o servidor da madeireira.'
-                      : 'Nenhuma conexão ativa encontrada. Não se preocupe: seus orçamentos e clientes estão totalmente seguros no LocalStorage do celular.'
-                    }
-                  </p>
-                </div>
-              </div>
-
-              {/* Sync State Detail */}
-              <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-850 space-y-3 font-sans">
-                <div className="flex justify-between items-center">
-                  <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Modo de Segurança</span>
-                  <span className="text-[9px] bg-neutral-900 text-amber-500 border border-neutral-800 font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wide">LocalStorage Ativo</span>
+                  <button 
+                    onClick={() => setShowSyncInfoModal(false)}
+                    className="w-8 h-8 rounded-full bg-neutral-800 hover:bg-neutral-700 flex items-center justify-center font-bold text-zinc-300 hover:text-white transition-colors cursor-pointer text-lg leading-none"
+                  >
+                    ×
+                  </button>
                 </div>
 
-                <div className="flex justify-between items-center text-xs">
-                  <span className="text-zinc-500">Última Sincronização:</span>
-                  <span className="font-bold font-mono text-zinc-250">{lastSyncTime}</span>
-                </div>
-
-                <div className="flex justify-between items-center text-xs border-t border-neutral-900 pt-2.5">
-                  <span className="text-zinc-500">Status dos Orçamentos:</span>
-                  <span className={`font-black uppercase tracking-wide flex items-center gap-1.5 text-[10px] ${
-                    syncStatus === 'syncing' ? 'text-amber-500 animate-pulse' :
-                    syncStatus === 'pending' ? 'text-rose-500' : 'text-emerald-500'
-                  }`}>
-                    <span className={`w-2 h-2 rounded-full ${
-                      syncStatus === 'syncing' ? 'bg-amber-500 animate-ping' :
-                      syncStatus === 'pending' ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'
-                    }`}></span>
-                    {syncStatus === 'syncing' && 'Sincronizando Nuvem...'}
-                    {syncStatus === 'pending' && 'Alterações Pendentes'}
-                    {syncStatus === 'synced' && '100% Sincronizado'}
-                  </span>
-                </div>
-
-                {/* Quick stats on LocalStorage contents */}
-                <div className="grid grid-cols-2 gap-2 text-[10px] mt-1 pt-2.5 border-t border-neutral-900 text-zinc-400 leading-tight">
-                  <div className="bg-neutral-900 p-2.5 rounded-lg border border-neutral-850">
-                    <span className="text-zinc-500 block">Clientes Locais:</span>
-                    <span className="text-xs font-black font-mono text-zinc-200">{clients.length} cadastrados</span>
+                {/* Connection Status Banner */}
+                <div className={`p-4 rounded-xl border flex items-start gap-3 ${
+                  !isOnline 
+                    ? 'bg-rose-950/25 border-rose-900/40 text-rose-200' 
+                    : 'bg-emerald-950/20 border-emerald-900/45 text-emerald-250'
+                }`}>
+                  <div className="mt-0.5 shrink-0">
+                    {isOnline ? (
+                      <Wifi className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <WifiOff className="w-4 h-4 text-rose-500 animate-pulse" />
+                    )}
                   </div>
-                  <div className="bg-neutral-900 p-2.5 rounded-lg border border-neutral-850">
-                    <span className="text-zinc-500 block">Orçamentos no Banco:</span>
-                    <span className="text-xs font-black font-mono text-zinc-250">{budgets.length} salvos</span>
+                  <div className="space-y-0.5">
+                    <span className="font-extrabold text-xs block">
+                      Dispositivo: {isOnline ? 'Conectado à Internet' : 'Funcionando 100% Offline'}
+                    </span>
+                    <p className="text-[10px] text-zinc-400 leading-normal">
+                      {isOnline 
+                        ? 'Você está conectado à nuvem. Dados gravados localmente são automaticamente sincronizados com o servidor da madeireira.'
+                        : 'Nenhuma conexão ativa encontrada. Não se preocupe: seus orçamentos e clientes estão totalmente seguros no LocalStorage do celular.'
+                      }
+                    </p>
                   </div>
                 </div>
-              </div>
 
-              {/* Actions */}
-              <div className="space-y-2 pt-2">
-                <button
-                  onClick={() => {
-                    triggerSync();
-                  }}
-                  disabled={syncStatus === 'syncing'}
-                  className={`w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer border select-none ${
-                    syncStatus === 'syncing'
-                      ? 'bg-neutral-800 border-neutral-700 text-zinc-500 cursor-not-allowed'
-                      : 'bg-emerald-600 border-emerald-500 text-neutral-950 font-black hover:bg-emerald-500 hover:scale-[1.01] active:scale-[0.99] shadow-lg shadow-emerald-950/20'
-                  }`}
-                >
-                  <RefreshCw className={`w-4 h-4 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
-                  <span>{syncStatus === 'syncing' ? 'Sincronizando...' : 'Forçar Sincronização Agora'}</span>
-                </button>
-                
-                <div className="text-center px-2">
-                  <span className="text-[9px] text-zinc-500 leading-normal max-w-[280px] inline-block">
-                    Segurança de Dados: Nenhuma alteração é perdida. O banco de dados SQLite local é espelhado no navegador do operador.
-                  </span>
+                {/* Sync State Detail */}
+                <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-850 space-y-3 font-sans">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">Modo de Segurança</span>
+                    <span className="text-[9px] bg-neutral-900 text-amber-500 border border-neutral-800 font-extrabold px-2 py-0.5 rounded-full uppercase tracking-wide">LocalStorage Ativo</span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs">
+                    <span className="text-zinc-500">Última Sincronização:</span>
+                    <span className="font-bold font-mono text-zinc-250">{lastSyncTime}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center text-xs border-t border-neutral-900 pt-2.5">
+                    <span className="text-zinc-500">Status dos Orçamentos:</span>
+                    <span className={`font-black uppercase tracking-wide flex items-center gap-1.5 text-[10px] ${
+                      syncStatus === 'syncing' ? 'text-amber-500 animate-pulse' :
+                      syncStatus === 'pending' ? 'text-rose-500' : 'text-emerald-500'
+                    }`}>
+                      <span className={`w-2 h-2 rounded-full ${
+                        syncStatus === 'syncing' ? 'bg-amber-500 animate-ping' :
+                        syncStatus === 'pending' ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'
+                      }`}></span>
+                      {syncStatus === 'syncing' && 'Sincronizando Nuvem...'}
+                      {syncStatus === 'pending' && 'Alterações Pendentes'}
+                      {syncStatus === 'synced' && '100% Sincronizado'}
+                    </span>
+                  </div>
+
+                  {/* Quick stats on LocalStorage contents */}
+                  <div className="grid grid-cols-2 gap-2 text-[10px] mt-1 pt-2.5 border-t border-neutral-900 text-zinc-400 leading-tight">
+                    <div className="bg-neutral-900 p-2.5 rounded-lg border border-neutral-850">
+                      <span className="text-zinc-500 block">Clientes Locais:</span>
+                      <span className="text-xs font-black font-mono text-zinc-200">{clients.length} cadastrados</span>
+                    </div>
+                    <div className="bg-neutral-900 p-2.5 rounded-lg border border-neutral-850">
+                      <span className="text-zinc-500 block">Orçamentos no Banco:</span>
+                      <span className="text-xs font-black font-mono text-zinc-250">{budgets.length} salvos</span>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          </div>
-        )}
+
+                {/* Actions */}
+                <div className="space-y-2 pt-2">
+                  <button
+                    onClick={() => {
+                      triggerSync();
+                    }}
+                    disabled={syncStatus === 'syncing'}
+                    className={`w-full py-3.5 rounded-xl font-bold text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all cursor-pointer border select-none ${
+                      syncStatus === 'syncing'
+                        ? 'bg-neutral-800 border-neutral-700 text-zinc-500 cursor-not-allowed'
+                        : 'bg-emerald-600 border-emerald-500 text-neutral-950 font-black hover:bg-emerald-500 hover:scale-[1.01] active:scale-[0.99] shadow-lg shadow-emerald-950/20'
+                    }`}
+                  >
+                    <RefreshCw className={`w-4 h-4 ${syncStatus === 'syncing' ? 'animate-spin' : ''}`} />
+                    <span>{syncStatus === 'syncing' ? 'Sincronizando...' : 'Forçar Sincronização Agora'}</span>
+                  </button>
+                  
+                  <div className="text-center px-2">
+                    <span className="text-[9px] text-zinc-500 leading-normal max-w-[280px] inline-block">
+                      Segurança de Dados: Nenhuma alteração é perdida. O banco de dados SQLite local é espelhado no navegador do operador.
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* BOTTOM NAVIGATION BAR */}
         <div className="h-18 border-t border-neutral-800 bg-neutral-950 flex justify-around items-center px-3 pb-1 shrink-0 z-10 text-xs font-sans">
@@ -9545,14 +9946,22 @@ ${itemRows}
             const IconComp = tab.icon;
             const isSel = activeTab === tab.id;
             return (
-              <button 
+              <motion.button 
                 key={tab.id}
+                whileTap={{ scale: 0.94 }}
                 onClick={() => { setActiveTab(tab.id); setIsCreatingBudget(false); setViewingBudget(null); setSelectedClient(null); setShowAdmin(false); setIsAddingClient(false); }}
-                className={`flex flex-col items-center justify-center flex-1 py-1.5 select-none cursor-pointer transition-all ${isSel ? 'text-amber-500 font-extrabold bg-neutral-900 border border-neutral-800/40 rounded-xl' : 'text-zinc-400 hover:text-zinc-200'}`}
+                className={`flex flex-col items-center justify-center flex-1 py-1.5 select-none cursor-pointer transition-all relative ${isSel ? 'text-amber-500 font-extrabold' : 'text-zinc-400 hover:text-zinc-200'}`}
               >
+                {isSel && (
+                  <motion.div 
+                    layoutId="activeTabPill" 
+                    className="absolute inset-0 bg-neutral-900 border border-neutral-800/40 rounded-xl -z-10"
+                    transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+                  />
+                )}
                 <IconComp className={`w-5 h-5 mb-1 transition-transform ${isSel ? 'text-amber-500 scale-110 stroke-[2.5]' : 'text-zinc-500'}`} />
                 <span className="text-[11px] sm:text-xs tracking-tight font-bold">{tab.label}</span>
-              </button>
+              </motion.button>
             );
           })}
         </div>
