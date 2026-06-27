@@ -14,6 +14,7 @@ import { INITIAL_PRODUCTS, INITIAL_CLIENTS, INITIAL_BUDGETS, DATABASE_SCHEMAS, S
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+import { App } from '@capacitor/app';
 
 // Helper to format Brazilian telephone/WhatsApp numbers elegantly in real-time
 export function formatBrazilianPhoneNumber(raw: string): string {
@@ -683,9 +684,26 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
     window.addEventListener('popstate', handlePopStateEvent);
     document.addEventListener('visibilitychange', handleDocumentVisibility);
 
+    // 3. Capacitor Native App Back Button Interception
+    let capBackListener: any = null;
+    if (Capacitor.isNativePlatform()) {
+      App.addListener('backButton', () => {
+        if (nativeBackRef.current) {
+          nativeBackRef.current();
+        }
+      }).then(listener => {
+        capBackListener = listener;
+      }).catch(err => {
+        console.warn('Erro ao registrar backButton do Capacitor:', err);
+      });
+    }
+
     return () => {
       window.removeEventListener('popstate', handlePopStateEvent);
       document.removeEventListener('visibilitychange', handleDocumentVisibility);
+      if (capBackListener) {
+        capBackListener.remove();
+      }
     };
   }, []);
 
