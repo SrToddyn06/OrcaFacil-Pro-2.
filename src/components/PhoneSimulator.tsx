@@ -10,6 +10,9 @@ import {
 } from 'lucide-react';
 import { Client, Product, Budget, BudgetItem, BudgetStatus, UnitType, TableUpdateResult } from '../types';
 import { INITIAL_PRODUCTS, INITIAL_CLIENTS, INITIAL_BUDGETS, DATABASE_SCHEMAS, SAMPLE_TXT_FILES } from '../data';
+import { Capacitor } from '@capacitor/core';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { Share } from '@capacitor/share';
 
 // Helper to format Brazilian telephone/WhatsApp numbers elegantly in real-time
 export function formatBrazilianPhoneNumber(raw: string): string {
@@ -2763,18 +2766,72 @@ export default function PhoneSimulator({ onAddLog = () => {} }: PhoneSimulatorPr
     }
   };
 
-  const triggerDownloadImage = () => {
+  const triggerDownloadImage = async () => {
     if (!generatedImg) return;
-    try {
-      const a = document.createElement('a');
-      a.href = generatedImg;
-      a.download = `Orcamento_Impresso_${Date.now()}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      triggerNotification('Imagem de orçamento descarregada com sucesso!');
-    } catch (e) {
-      triggerNotification('Seu dispositivo não suportou downloads directos.');
+    
+    if (Capacitor.isNativePlatform()) {
+      try {
+        onAddLog('Solicitando permissão de salvamento de arquivos ao Android...');
+        
+        // Request permissions natively (triggers the system allow/deny popup)
+        const check = await Filesystem.checkPermissions();
+        if (check.publicStorage !== 'granted') {
+          const req = await Filesystem.requestPermissions();
+          if (req.publicStorage !== 'granted') {
+            triggerNotification('⚠️ Permissão de armazenamento negada pelo usuário.');
+            onAddLog('❌ Permissão de armazenamento negada.');
+            return;
+          }
+        }
+        
+        onAddLog('Permissão concedida! Convertendo e gravando arquivo PNG...');
+        
+        // Strip data:image/png;base64, prefix for the raw base64 data
+        const base64Parts = generatedImg.split(',');
+        const base64Data = base64Parts.length > 1 ? base64Parts[1] : base64Parts[0];
+        
+        const fileName = `Orcamento_Impresso_${Date.now()}.png`;
+        
+        // Save the file to Documents directory (standard file storage)
+        const result = await Filesystem.writeFile({
+          path: fileName,
+          data: base64Data,
+          directory: Directory.Documents
+        });
+        
+        onAddLog(`✓ Arquivo gravado com sucesso no dispositivo: ${fileName}`);
+        triggerNotification('✓ Imagem salva na pasta Documentos!');
+        
+        // Open Native Share Sheet (allows user to Save to Files, share via WA, Drive, Telegram, etc.)
+        if (await Share.canShare()) {
+          await Share.share({
+            title: 'Salvar Orçamento',
+            text: 'Imagem do orçamento gerada pelo OrçaFácil Pro.',
+            url: result.uri,
+            dialogTitle: 'Salvar ou Compartilhar Orçamento'
+          });
+          onAddLog('✓ Diálogo nativo de compartilhamento/salvamento concluído.');
+        } else {
+          onAddLog(`⚠️ Recurso de compartilhamento nativo não disponível. Arquivo salvo em: ${result.uri}`);
+        }
+      } catch (err: any) {
+        console.error('Error saving image natively:', err);
+        onAddLog(`❌ Erro de permissão/salvamento nativo: ${err.message || err}`);
+        triggerNotification('Erro ao salvar imagem no celular.');
+      }
+    } else {
+      // Browser fallback (Web)
+      try {
+        const a = document.createElement('a');
+        a.href = generatedImg;
+        a.download = `Orcamento_Impresso_${Date.now()}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        triggerNotification('Imagem de orçamento baixada com sucesso!');
+      } catch (e) {
+        triggerNotification('Seu dispositivo não suportou downloads diretos no navegador.');
+      }
     }
   };
 
@@ -9052,85 +9109,49 @@ ${itemRows}
                 </button>
               </div>
 
-              {/* TEST & COMPATIBILITY MONITOR FOR ANDROID / APK WEBVIEW */}
-              <div className="bg-neutral-900/90 border border-neutral-800 p-3 rounded-2xl text-left space-y-1.5 mt-2.5">
-                <div className="flex justify-between items-center">
-                  <span className="text-[9.5px] font-black text-amber-500 uppercase tracking-wider">🛠️ CENTRAL DE COMPATIBILIDADE ANDROID / APK</span>
-                  <span className="text-[8px] bg-amber-950 text-amber-500 px-1.5 py-0.5 rounded font-mono font-bold">XIAOMI & REDMI NOTE 11 TEST</span>
-                </div>
-                <p className="text-[9px] text-zinc-300 leading-relaxed font-semibold">
-                  No Android (dentro de aplicativos instalados por APK), o sistema de segurança da WebView costuma bloquear cliques diretos em links de download.
-                </p>
-                <div className="grid grid-cols-2 gap-2 pt-1 font-mono text-[8.5px] text-zinc-400">
-                  <div className="bg-neutral-955 p-1.5 rounded border border-neutral-850">
-                    <span className="text-[8px] text-zinc-500 uppercase block">Downloads Diretos</span>
-                    <span className="text-red-400 font-extrabold font-bold">⚠️ Bloqueado pela WebView</span>
-                  </div>
-                  <div className="bg-neutral-955 p-1.5 rounded border border-neutral-850">
-                    <span className="text-[8px] text-zinc-500 uppercase block">Método de Sucesso</span>
-                    <span className="text-emerald-400 font-extrabold font-bold">✓ Toque Longo / Área de Transf.</span>
-                  </div>
-                </div>
-              </div>
-
               <div className="flex-1 my-3 flex flex-col justify-center items-center overflow-hidden bg-neutral-900/60 p-2 rounded-2xl border border-neutral-900 relative">
-                {/* Visual guidance indicator */}
-                <div className="absolute top-4 left-4 right-4 z-10 bg-neutral-950/90 border border-emerald-900/50 p-2 rounded-xl text-center shadow-md pointer-events-none animate-pulse">
-                  <span className="text-[9.5px] text-emerald-400 uppercase font-black tracking-wider block">👉 SEGURE O DEDO SOBRE A IMAGEM ABAIXO</span>
-                  <span className="text-[8px] text-zinc-400 block mt-0.5">Mantenha pressionado para "Fazer download da imagem" ou "Compartilhar" nativamente!</span>
-                </div>
-                
-                {/* Scrollable container for the image so they can scroll to review it */}
-                <div className="w-full flex-1 overflow-auto rounded-xl flex items-start justify-center p-1.5 pt-12 border border-dashed border-neutral-800 bg-neutral-900">
+                {/* Scrollable container for the image */}
+                <div className="w-full flex-1 overflow-auto rounded-xl flex items-start justify-center p-4 border border-dashed border-neutral-800 bg-neutral-900">
                   <img 
                     src={generatedImg} 
                     alt="Orçamento Impresso" 
-                    className="max-w-full h-auto object-contain rounded shadow-lg touch-auto cursor-pointer"
+                    className="max-w-full h-auto object-contain rounded shadow-lg pointer-events-none select-none"
                     referrerPolicy="no-referrer"
-                    style={{ WebkitTouchCallout: 'default' }} // Enables standard callout menu on long-press in iOS/Android
+                    onContextMenu={(e) => e.preventDefault()}
                   />
                 </div>
               </div>
 
-              <div className="space-y-2 flex-shrink-0">
+              <div className="space-y-2 flex-shrink-0 font-sans font-black">
+                <button 
+                  type="button"
+                  onClick={handleShareWhatsApp}
+                  className="w-full bg-emerald-600 hover:bg-emerald-500 text-neutral-950 py-3.5 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-1.5 shadow font-black transition-all active:scale-95"
+                >
+                  <span>💬 Enviar para WhatsApp</span>
+                </button>
+
                 <div className="grid grid-cols-2 gap-2">
-                  <button 
-                    type="button"
-                    onClick={handleCopyImageToClipboard}
-                    className="bg-amber-500 hover:bg-amber-400 text-neutral-950 py-3 rounded-xl text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow font-black"
-                  >
-                    <span>📋 Copiar Imagem (Colar no Whats)</span>
-                  </button>
                   <button 
                     type="button"
                     onClick={() => {
                       if (generatedWhatsApptext) {
                         copyToClipboard(generatedWhatsApptext);
-                        triggerNotification('✓ Texto formatado copiado! Só colar no WhatsApp.');
+                        triggerNotification('✓ Texto formatado copiado com sucesso!');
                       } else {
                         triggerNotification('Sem texto para copiar.');
                       }
                     }}
-                    className="bg-neutral-800 hover:bg-neutral-750 text-zinc-200 py-3 rounded-xl text-[10px] uppercase tracking-wider font-extrabold flex items-center justify-center gap-1"
+                    className="bg-neutral-800 hover:bg-neutral-750 text-zinc-200 py-3 rounded-xl text-[10px] uppercase tracking-wider font-extrabold flex items-center justify-center gap-1 transition-all active:scale-95"
                   >
-                    <span>💬 Copiar Texto Formatado</span>
-                  </button>
-                </div>
-
-                <div className="flex gap-2 font-sans font-black">
-                  <button 
-                    type="button"
-                    onClick={handleShareImage}
-                    className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-neutral-950 py-3 rounded-xl text-[10px] uppercase tracking-wider flex items-center justify-center gap-1.5 shadow font-black"
-                  >
-                    <span>🔗 Compartilhamento Padrão</span>
+                    <span>📋 Copiar Texto</span>
                   </button>
                   <button 
                     type="button"
                     onClick={triggerDownloadImage}
-                    className="bg-neutral-900 hover:bg-neutral-850 text-zinc-400 px-4 rounded-xl text-[10px] uppercase tracking-wider font-extrabold border border-neutral-800"
+                    className="bg-neutral-900 hover:bg-neutral-850 text-zinc-400 py-3 rounded-xl text-[10px] uppercase tracking-wider font-extrabold border border-neutral-800 transition-all active:scale-95"
                   >
-                    Download Web
+                    💾 Salvar Imagem
                   </button>
                 </div>
               </div>
