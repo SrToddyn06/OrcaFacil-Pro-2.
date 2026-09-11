@@ -10,7 +10,7 @@ export interface Client {
   gpsCoords?: string;
 }
 
-export type UnitType = 'UN' | 'M' | 'M3' | 'TABUA' | 'PRANCHA';
+export type UnitType = 'UN' | 'M' | 'M3' | 'TABUA' | 'PRANCHA' | 'HORA' | 'M2' | 'KG' | 'TON' | 'DIARIA' | 'M3_BLOCO' | 'MIL' | 'ST';
 
 export interface Product {
   id: string;
@@ -31,6 +31,7 @@ export interface BudgetItem {
   unit: UnitType;
   // Cubic / Custom measurement metadata
   diameter?: number; // in cm
+  thickness?: number; // in cm (for BLOCKS and PRANCHAS)
   width?: number;    // in cm (for TABUA and PRANCHA)
   length?: number;   // in m
 }

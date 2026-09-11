@@ -1,13 +1,16 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { toPng } from 'html-to-image';
+import { jsPDF } from 'jspdf';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
-  TrendingUp, Users, ShoppingBag, FileText, UploadCloud, 
-  CheckCircle2, AlertTriangle, Trash2, Copy, Plus, Search, 
-  Share2, FileDown, Clock, ArrowLeftRight, Settings, Send, 
-  Info, Calculator, ShieldAlert, DollarSign, Check, ChevronRight,
-  Database, RefreshCw, Smartphone, CheckSquare, ChevronLeft,
-  Activity, Zap, Cloud, CloudOff, Wifi, WifiOff, Edit
+  LayoutDashboard, Users, Users2, ShoppingBag, TreePine, FileText, Receipt, FileSpreadsheet,
+  UploadCloud, CheckCircle2, CheckCheck, BadgeCheck, AlertTriangle, Trash2, Copy, CopyPlus, Plus, PlusCircle, Search, 
+  Share2, FileDown, Clock, ArrowLeft, ArrowLeftRight, Settings, Settings2, SlidersHorizontal, Send, MessageCircle, MessageSquare,
+  Info, Calculator, Ruler, Hammer, DraftingCompass, ShieldAlert, ShieldCheck, DollarSign, Check, ChevronRight, ChevronLeft,
+  Database, RefreshCw, Smartphone, CheckSquare, Activity, Zap, Cloud, CloudOff, Wifi, WifiOff, Edit, Edit3, Pencil,
+  Building, Building2, User, UserPlus, UserCheck, Contact, Phone, MapPin, Mail, Truck, Printer, Eye, Sparkles, Wand2,
+  Bot, XCircle, Save, BookOpen, Lightbulb, Compass, Scale, Box, Columns, RotateCcw, Package, PackagePlus,
+  PackageCheck, DoorClosed, Table, LayoutGrid, X, Layers
 } from 'lucide-react';
 import { Client, Product, Budget, BudgetItem, BudgetStatus, UnitType, TableUpdateResult } from '../types';
 import { INITIAL_PRODUCTS, INITIAL_CLIENTS, INITIAL_BUDGETS, DATABASE_SCHEMAS, SAMPLE_TXT_FILES } from '../data';
@@ -279,7 +282,48 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [budgetFilter, setBudgetFilter] = useState<string>('Todos');
   const [showAdmin, setShowAdmin] = useState(false);
-  const [adminTab, setAdminTab] = useState<'import' | 'database' | 'stresstest' | 'settings'>('import');
+  const [adminTab, setAdminTab] = useState<'import' | 'database' | 'stresstest' | 'settings'>('settings');
+
+  // Personalização de Dados da Empresa emissora de Orçamentos
+  const [companyProfile, setCompanyProfile] = useState<{
+    companyName: string;
+    ownerName: string;
+    cnpj: string;
+    cpf: string;
+    phone: string;
+    email: string;
+    address: string;
+    cityState: string;
+  }>(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = window.localStorage.getItem('orcafacil_company_profile');
+        if (saved) return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar companyProfile:', e);
+    }
+    return {
+      companyName: 'OrçaFacil Pro - Madeiras',
+      ownerName: 'Proprietário',
+      cnpj: '00.320.123/0001-99',
+      cpf: '',
+      phone: '(11) 99999-8888',
+      email: 'contato@orcafacil.com.br',
+      address: 'Rodovia das Madeiras, Km 12 - Zona Rural',
+      cityState: 'São Paulo - SP'
+    };
+  });
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('orcafacil_company_profile', JSON.stringify(companyProfile));
+      }
+    } catch (e) {
+      console.warn('Erro ao salvar companyProfile:', e);
+    }
+  }, [companyProfile]);
 
   // Clear search on tab change to prevent filtered lists bleed-over
   useEffect(() => {
@@ -351,10 +395,10 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   const [tableMargin, setTableMargin] = useState<string>('30');
   const [tableBenches, setTableBenches] = useState<boolean>(false);
   const [tableCustomPrice, setTableCustomPrice] = useState<string>('');
-  const [calcSubTab, setCalcSubTab] = useState<'explanation' | 'new_measure' | 'porteiras' | 'mesas'>('porteiras');
+  const [calcSubTab, setCalcSubTab] = useState<'explanation' | 'new_measure' | 'porteiras' | 'mesas' | 'pranchas' | 'toras'>('pranchas');
   
-  // Products/Madeiras Tab States
-  const [productsSubTab, setProductsSubTab] = useState<'lista' | 'sob_medida'>('lista');
+  // Products/Madeiras Tab States - Default to 'cubagem' as requested
+  const [productsSubTab, setProductsSubTab] = useState<'cubagem' | 'catalogo' | 'sob_medida'>('cubagem');
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [editProdName, setEditProdName] = useState('');
@@ -362,6 +406,13 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   const [editProdUnit, setEditProdUnit] = useState<UnitType>('M');
   const [editProdPrice, setEditProdPrice] = useState('');
   const [editProdDesc, setEditProdDesc] = useState('');
+
+  // Always guarantee 'cubagem' is the primary view whenever the user opens the Madeiras tab
+  useEffect(() => {
+    if (activeTab === 'products') {
+      setProductsSubTab('cubagem');
+    }
+  }, [activeTab]);
   
   // Stress Test Suite States
   const [testRunning, setTestRunning] = useState<string | null>(null);
@@ -428,7 +479,40 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   const [calcProductPrice, setCalcProductPrice] = useState<number>(450);
   const [calcHistory, setCalcHistory] = useState<{ id: string; diameter: number; length: number; volume: number; price: number; value: number }[]>([]);
 
-  // Import TXT states
+  // Calculator Mode inside Tabela de Preços ('toras' | 'pranchas') - Defaults to 'toras' (Calculadora de Cubagem de Toras Huber)
+  const [prodCalcMode, setProdCalcMode] = useState<'toras' | 'pranchas'>('toras');
+
+  // Block & Prancha Calculator States (Romaneio de Pranchas / Blocos Retangulares)
+  const [blockCalcThickness, setBlockCalcThickness] = useState<string>('15'); // cm
+  const [blockCalcWidth, setBlockCalcWidth] = useState<string>('25'); // cm
+  const [blockCalcLength, setBlockCalcLength] = useState<string>('3.0'); // m
+  const [blockCalcQty, setBlockCalcQty] = useState<string>('1'); // pçs
+  const [blockCalcPrice, setBlockCalcPrice] = useState<number>(450); // R$/m³
+  const [blockCalcHistory, setBlockCalcHistory] = useState<{ 
+    id: string; 
+    thickness: number; 
+    width: number; 
+    length: number; 
+    qty: number; 
+    volumeUnit: number; 
+    volumeTotal: number; 
+    price: number; 
+    value: number 
+  }[]>([]);
+
+  const [showAllBlockHistory, setShowAllBlockHistory] = useState<boolean>(false);
+  const [showAllToraHistory, setShowAllToraHistory] = useState<boolean>(false);
+
+  // States for linking Wood Cubage (Toras Huber / Pranchas) into Specific Client Budgets
+  const [showAttachWoodModal, setShowAttachWoodModal] = useState<boolean>(false);
+  const [attachTargetSource, setAttachTargetSource] = useState<'current_tora' | 'history_toras' | 'block_history'>('current_tora');
+  const [attachOperationType, setAttachOperationType] = useState<'servico_corte' | 'venda_madeira'>('servico_corte');
+  const [attachPriceM3, setAttachPriceM3] = useState<number>(450);
+  const [attachClientId, setAttachClientId] = useState<string>('');
+  const [attachBudgetId, setAttachBudgetId] = useState<string>('existing_active');
+  const [attachNewClientName, setAttachNewClientName] = useState<string>('');
+  const [attachNewClientPhone, setAttachNewClientPhone] = useState<string>('');
+
   const [txtInput, setTxtInput] = useState<string>(SAMPLE_TXT_FILES.mergeUpdate);
   const [importReport, setImportReport] = useState<TableUpdateResult | null>(null);
   const [importMode, setImportMode] = useState<'merge' | 'replace'>('merge');
@@ -436,9 +520,10 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
 
   // Budget wizard states
   const [isCreatingBudget, setIsCreatingBudget] = useState(false);
+  const [editingBudgetId, setEditingBudgetId] = useState<string | null>(null);
   const [bWizardStep, setBWizardStep] = useState<number>(1);
   const [bSelectedClient, setBSelectedClient] = useState<Client | null>(null);
-  const [bItems, setBItems] = useState<{ product: Product; quantity: number; diameter?: number; width?: number; length?: number }[]>([]);
+  const [bItems, setBItems] = useState<{ product: Product; quantity: number; diameter?: number; thickness?: number; width?: number; length?: number }[]>([]);
   const [bDiscount, setBDiscount] = useState<number | string>(0);
   const [bFreight, setBFreight] = useState<number | string>(0);
   const [bObs, setBObs] = useState<string>('');
@@ -470,6 +555,7 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
 
   // Start new budget wizard helper
   const startNewBudget = () => {
+    setEditingBudgetId(null);
     setIsCreatingBudget(true);
     setBWizardStep(1);
     setBClientSelectionMode('new'); // default to 'new' so customer creation shows up immediately
@@ -481,6 +567,54 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
     setBDiscount(0);
     setBFreight(0);
     setBObs('');
+  };
+
+  const startEditBudget = (budget: Budget) => {
+    setEditingBudgetId(budget.id);
+    
+    // Map existing items to bItems structure
+    const mappedItems: { product: Product; quantity: number; diameter?: number; thickness?: number; width?: number; length?: number }[] = budget.items.map(it => {
+      const matchedProd = products.find(p => p.id === it.productId) || {
+        id: it.productId,
+        code: 'MAD-EDT',
+        name: it.productName,
+        price: it.price,
+        unit: it.unit,
+        description: 'Material do orçamento'
+      };
+
+      return {
+        product: matchedProd,
+        quantity: it.quantity,
+        diameter: it.diameter,
+        thickness: it.thickness,
+        width: it.width,
+        length: it.length
+      };
+    });
+
+    setBItems(mappedItems);
+    setBDiscount(budget.discount || 0);
+    setBFreight(budget.freight || 0);
+    setBObs(budget.observations || '');
+    setBValidity(budget.validityDays || 10);
+
+    // Set client details
+    const existingClient = clients.find(c => c.id === budget.clientId);
+    if (existingClient) {
+      setBSelectedClient(existingClient);
+      setBClientSelectionMode('existing');
+    } else {
+      setBNewClientName(budget.clientName || '');
+      setBNewClientPhone(existingClient?.phone || '');
+      setBClientSelectionMode('new');
+    }
+
+    setViewingBudget(null);
+    setIsCreatingBudget(true);
+    setBWizardStep(1);
+    triggerNotification(`Modo Edição: Orçamento ${budget.number}`);
+    onAddLog(`Edição iniciada no orçamento ${budget.number} para inclusão de cubagem e madeiras.`);
   };
 
   // Delete budget individually from state - opens custom modal
@@ -532,7 +666,28 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
 
   // App notification state
   const [appNotification, setAppNotification] = useState<string | null>(null);
-  const [showQuickGuide, setShowQuickGuide] = useState<boolean>(true);
+  const [showQuickGuide, setShowQuickGuide] = useState<boolean>(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const stored = window.localStorage.getItem('orcafacil_quick_guide_seen');
+        return stored !== 'true';
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  });
+
+  const handleDismissQuickGuide = () => {
+    setShowQuickGuide(false);
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('orcafacil_quick_guide_seen', 'true');
+      }
+    } catch (e) {
+      console.warn('Erro ao salvar orcafacil_quick_guide_seen:', e);
+    }
+  };
 
   const triggerNotification = (text: string) => {
     setAppNotification(text);
@@ -2132,6 +2287,14 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
         // Quantidade is already volume * addingQty
         return acc + (item.product.price * qty);
       }
+      if (item.product.unit === 'M3_BLOCO' && item.thickness && item.width && item.length) {
+        const volPerPiece = (item.thickness * item.width * item.length) / 10000;
+        const piecePrice = volPerPiece * item.product.price;
+        return acc + (piecePrice * qty);
+      }
+      if (item.product.unit === 'MIL') {
+        return acc + (item.product.price * (qty / 1000));
+      }
       if ((item.product.unit === 'TABUA' || item.product.unit === 'PRANCHA') && item.width && item.length) {
         // Formula: Largura (cm) * Preço_cm * Comprimento (m) * Qtd_peças (quantity)
         const piecePrice = item.width * item.product.price * item.length;
@@ -2154,6 +2317,1141 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
     const dec = calculatedSubtotal * (1 - numDiscount / 100);
     return dec + numFreight;
   }, [calculatedSubtotal, bDiscount, bFreight]);
+
+  // Block & Prancha Calculator Helpers
+  const addBlockToHistory = () => {
+    const th = parseFloat(blockCalcThickness) || 0;
+    const wd = parseFloat(blockCalcWidth) || 0;
+    const len = parseFloat(blockCalcLength) || 0;
+    const q = parseInt(blockCalcQty, 10) || 1;
+    if (th <= 0 || wd <= 0 || len <= 0 || q <= 0) {
+      triggerNotification('Informe espessura, largura, comprimento e quantidade válidos!');
+      return;
+    }
+
+    const volUnit = (th * wd * len) / 10000;
+    const volTotal = volUnit * q;
+    const valTotal = volTotal * blockCalcPrice;
+
+    setBlockCalcHistory(prev => [
+      {
+        id: 'blk-' + Date.now() + '-' + Math.random().toString(36).substring(2, 6),
+        thickness: th,
+        width: wd,
+        length: len,
+        qty: q,
+        volumeUnit: volUnit,
+        volumeTotal: volTotal,
+        price: blockCalcPrice,
+        value: valTotal
+      },
+      ...prev
+    ]);
+
+    triggerNotification(`Adicionado ao Romaneio: ${q} pçs de ${th}x${wd}cm x ${len}m (${volTotal.toFixed(3)} m³)`);
+    onAddLog(`Lote de ${q} prancha(s) ${th}x${wd}cm x ${len}m adicionado ao romaneio de desdobro.`);
+  };
+
+  const clearBlockHistory = () => {
+    setBlockCalcHistory([]);
+    triggerNotification('Romaneio de pranchas e blocos limpo!');
+  };
+
+  const sendBlockHistoryToBudget = () => {
+    if (blockCalcHistory.length === 0) {
+      triggerNotification('Nenhum lote de pranchas no romaneio para enviar!');
+      return;
+    }
+
+    let baseProd = products.find(p => p.unit === 'M3_BLOCO') || products.find(p => p.unit === 'M3') || products[0];
+
+    const newBItems = blockCalcHistory.map(b => {
+      const itemProd: Product = {
+        ...baseProd,
+        id: 'prod_blk_' + b.thickness + 'x' + b.width + 'x' + b.length + '_' + Date.now(),
+        name: `Prancha/Bloco Serrado (${b.thickness}x${b.width}cm x ${b.length}m)`,
+        unit: 'M3_BLOCO',
+        price: b.price
+      };
+
+      return {
+        product: itemProd,
+        quantity: b.qty,
+        thickness: b.thickness,
+        width: b.width,
+        length: b.length
+      };
+    });
+
+    if (!isCreatingBudget) {
+      startNewBudget();
+    }
+
+    setBItems(prev => [...prev, ...newBItems]);
+    setBWizardStep(2);
+    setActiveTab('budgets');
+    triggerNotification(`✅ ${blockCalcHistory.length} lote(s) de pranchas injetado(s) no orçamento!`);
+    onAddLog(`Romaneio de ${blockCalcHistory.length} lote(s) de pranchas transferido para o orçamento ativo.`);
+  };
+
+  // Open modal to attach Wood Cubing / Sawing Services to a specific Client Budget
+  const openAttachWoodModal = (source: 'current_tora' | 'history_toras' | 'block_history') => {
+    setAttachTargetSource(source);
+    
+    if (source === 'block_history') {
+      if (blockCalcHistory.length === 0) {
+        triggerNotification('Nenhum lote no romaneio de pranchas para enviar!');
+        return;
+      }
+      setAttachPriceM3(blockCalcPrice);
+    } else if (source === 'current_tora') {
+      const d = parseFloat(calcDiameter) || 0;
+      const l = parseFloat(calcLength) || 0;
+      if (d <= 0 || l <= 0) {
+        triggerNotification('Insira diâmetro e comprimento válidos para a tora!');
+        return;
+      }
+      setAttachPriceM3(calcProductPrice);
+    } else if (source === 'history_toras') {
+      if (calcHistory.length === 0) {
+        triggerNotification('Nenhuma tora salva no histórico para enviar!');
+        return;
+      }
+      setAttachPriceM3(calcProductPrice);
+    }
+
+    // Pre-select active budget / client if already in edit mode
+    if (editingBudgetId) {
+      const b = budgets.find(x => x.id === editingBudgetId);
+      if (b) {
+        setAttachClientId(b.clientId || '');
+        setAttachBudgetId(b.id);
+      } else {
+        setAttachBudgetId('existing_active');
+      }
+    } else if (bSelectedClient) {
+      setAttachClientId(bSelectedClient.id);
+      const clientBudgets = budgets.filter(b => b.clientId === bSelectedClient.id);
+      if (clientBudgets.length > 0) {
+        setAttachBudgetId(clientBudgets[0].id);
+      } else {
+        setAttachBudgetId('new_budget');
+      }
+    } else if (clients.length > 0) {
+      setAttachClientId(clients[0].id);
+      const clientBudgets = budgets.filter(b => b.clientId === clients[0].id);
+      if (clientBudgets.length > 0) {
+        setAttachBudgetId(clientBudgets[0].id);
+      } else {
+        setAttachBudgetId('new_budget');
+      }
+    } else {
+      setAttachClientId('new');
+      setAttachBudgetId('new_budget');
+    }
+
+    setShowAttachWoodModal(true);
+  };
+
+  // Confirm attachment of wood cubing into client budget
+  const handleConfirmAttachWood = () => {
+    // 1. Resolve Target Client
+    let targetClient: Client | null = null;
+    if (attachClientId === 'new') {
+      if (!attachNewClientName.trim()) {
+        triggerNotification('Informe o nome do novo cliente!');
+        return;
+      }
+      const newClientObj: Client = {
+        id: 'cli_' + Date.now(),
+        name: attachNewClientName.trim(),
+        phone: attachNewClientPhone.trim() || '',
+        whatsapp: attachNewClientPhone.trim() || '',
+        address: '',
+        observations: 'Cadastrado pela Cubagem de Madeiras',
+        createdAt: new Date().toLocaleDateString('pt-BR'),
+        totalSpent: 0
+      };
+      setClients(prev => [newClientObj, ...prev]);
+      targetClient = newClientObj;
+      try {
+        const storedClients = JSON.parse(localStorage.getItem('orcafacil_clients') || '[]');
+        localStorage.setItem('orcafacil_clients', JSON.stringify([newClientObj, ...storedClients]));
+      } catch (e) {
+        console.error('Error persisting client:', e);
+      }
+    } else {
+      targetClient = clients.find(c => c.id === attachClientId) || null;
+    }
+
+    // 2. Build Cubing Items
+    let newItems: { product: Product; quantity: number; diameter?: number; thickness?: number; width?: number; length?: number }[] = [];
+    const isCut = attachOperationType === 'servico_corte';
+
+    if (attachTargetSource === 'current_tora') {
+      const d = parseFloat(calcDiameter) || 0;
+      const l = parseFloat(calcLength) || 0;
+      const vol = parseCubicMeters(d, l);
+      
+      const prodName = isCut 
+        ? `Serviço de Corte/Desdobro no m³: Tora Ø ${d}cm x ${l}m`
+        : `Madeira em Tora Roliça Huber: Ø ${d}cm x ${l}m`;
+      
+      const prodDesc = isCut
+        ? `Desdobro e serragem de toras no m³ trazidas pelo cliente. Volume: ${vol.toFixed(3)} m³ @ R$ ${attachPriceM3.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/m³`
+        : `Madeira em tora cubada pela fórmula de Huber. Volume: ${vol.toFixed(3)} m³ @ R$ ${attachPriceM3.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/m³`;
+
+      const prodObj: Product = {
+        id: 'prod_tora_' + Date.now(),
+        code: isCut ? 'SRV-TOR' : 'MAD-TOR',
+        name: prodName,
+        price: attachPriceM3,
+        unit: 'M3',
+        description: prodDesc
+      };
+
+      newItems.push({
+        product: prodObj,
+        quantity: vol,
+        diameter: d,
+        length: l
+      });
+    } else if (attachTargetSource === 'history_toras') {
+      newItems = calcHistory.map((h, i) => {
+        const prodName = isCut 
+          ? `Serviço de Corte no m³: Tora #${calcHistory.length - i} (Ø ${h.diameter}cm x ${h.length}m)`
+          : `Tora de Madeira Huber #${calcHistory.length - i} (Ø ${h.diameter}cm x ${h.length}m)`;
+
+        const prodObj: Product = {
+          id: 'prod_tora_hist_' + h.id + '_' + i,
+          code: isCut ? 'SRV-TOR' : 'MAD-TOR',
+          name: prodName,
+          price: attachPriceM3,
+          unit: 'M3',
+          description: `Medição individual: Diâmetro ${h.diameter}cm x Comp. ${h.length}m = ${h.volume.toFixed(3)} m³`
+        };
+
+        return {
+          product: prodObj,
+          quantity: h.volume,
+          diameter: h.diameter,
+          length: h.length
+        };
+      });
+    } else if (attachTargetSource === 'block_history') {
+      newItems = blockCalcHistory.map((b, i) => {
+        const prodObj: Product = {
+          id: 'prod_blk_' + b.id + '_' + i,
+          code: isCut ? 'SRV-BLK' : 'MAD-BLK',
+          name: isCut
+            ? `Serviço de Desdobro de Pranchas (${b.thickness}x${b.width}cm x ${b.length}m)`
+            : `Prancha / Bloco Serrado (${b.thickness}x${b.width}cm x ${b.length}m)`,
+          price: attachPriceM3,
+          unit: 'M3_BLOCO',
+          description: `${b.qty} pçs (${b.thickness}x${b.width}cm x ${b.length}m) = ${b.volumeTotal.toFixed(3)} m³`
+        };
+
+        return {
+          product: prodObj,
+          quantity: b.qty,
+          thickness: b.thickness,
+          width: b.width,
+          length: b.length
+        };
+      });
+    }
+
+    // 3. Attach into Target Budget
+    const isTargetingActiveBudget = attachBudgetId === 'existing_active' && editingBudgetId;
+    const existingBudgetToUpdate = (!isTargetingActiveBudget && attachBudgetId !== 'new_budget')
+      ? budgets.find(b => b.id === attachBudgetId)
+      : null;
+
+    if (existingBudgetToUpdate) {
+      // EMBED INTO EXISTING SAVED BUDGET
+      const convertedNewItems: BudgetItem[] = newItems.map(it => ({
+        productId: it.product.id,
+        productName: it.product.name,
+        price: it.product.price,
+        quantity: it.quantity,
+        unit: it.product.unit,
+        diameter: it.diameter,
+        thickness: it.thickness,
+        width: it.width,
+        length: it.length
+      }));
+
+      const mergedItems = [...existingBudgetToUpdate.items, ...convertedNewItems];
+      
+      // Calculate updated subtotal
+      let updatedSubtotal = 0;
+      mergedItems.forEach(it => {
+        if (it.unit === 'M3') {
+          updatedSubtotal += it.price * it.quantity;
+        } else if (it.unit === 'M3_BLOCO' && it.thickness && it.width && it.length) {
+          const singleVol = (it.thickness * it.width * it.length) / 10000;
+          updatedSubtotal += singleVol * it.price * it.quantity;
+        } else if ((it.unit === 'TABUA' || it.unit === 'PRANCHA') && it.width && it.length) {
+          updatedSubtotal += it.width * it.price * it.length * it.quantity;
+        } else if (it.unit === 'M' && it.length) {
+          updatedSubtotal += it.price * it.length * it.quantity;
+        } else if (it.unit === 'MIL') {
+          updatedSubtotal += it.price * (it.quantity / 1000);
+        } else {
+          updatedSubtotal += it.price * it.quantity;
+        }
+      });
+
+      const discPct = existingBudgetToUpdate.discount || 0;
+      const freightVal = existingBudgetToUpdate.freight || 0;
+      const updatedTotal = Math.max(0, updatedSubtotal - (updatedSubtotal * (discPct / 100)) + freightVal);
+
+      const updatedBudget: Budget = {
+        ...existingBudgetToUpdate,
+        items: mergedItems,
+        subtotal: updatedSubtotal,
+        total: updatedTotal,
+        version: existingBudgetToUpdate.version + 1,
+        updateHistory: [
+          ...(existingBudgetToUpdate.updateHistory || []),
+          {
+            timestamp: new Date().toISOString(),
+            action: 'Inclusão de Cubagem de Madeira',
+            description: `Adicionado ${newItems.length} item(ns) de cubagem/corte de toras no valor de R$ ${(updatedSubtotal - existingBudgetToUpdate.subtotal).toFixed(2)}.`
+          }
+        ]
+      };
+
+      const updatedBudgetsList = budgets.map(b => b.id === updatedBudget.id ? updatedBudget : b);
+      setBudgets(updatedBudgetsList);
+      try {
+        localStorage.setItem('orcafacil_budgets', JSON.stringify(updatedBudgetsList));
+      } catch (e) {
+        console.error('Error saving updated budget:', e);
+      }
+
+      // Enter editing mode for this updated budget
+      startEditBudget(updatedBudget);
+      setShowAttachWoodModal(false);
+      setActiveTab('budgets');
+      triggerNotification(`✅ Cubagem adicionada ao orçamento ${updatedBudget.number} de ${updatedBudget.clientName}!`);
+      onAddLog(`Cubagem embutida com sucesso no orçamento ${updatedBudget.number} (${existingBudgetToUpdate.items.length} itens anteriores + ${newItems.length} novos itens).`);
+    } else if (isTargetingActiveBudget) {
+      // EMBED DIRECTLY INTO CURRENTLY ACTIVE WIZARD BASKET
+      setBItems(prev => [...prev, ...newItems]);
+      setShowAttachWoodModal(false);
+      setActiveTab('budgets');
+      setBWizardStep(1);
+      triggerNotification(`✅ Cubagem adicionada à cesta do orçamento em edição!`);
+      onAddLog(`Cubagem de toras injetada no orçamento ativo em edição (${newItems.length} novos itens).`);
+    } else {
+      // CREATE NEW BUDGET WITH CUBING ITEMS
+      startNewBudget();
+      if (targetClient) {
+        setBSelectedClient(targetClient);
+        setBClientSelectionMode('existing');
+      }
+      setBItems(newItems);
+      setShowAttachWoodModal(false);
+      setActiveTab('budgets');
+      setBWizardStep(1);
+      const clientNameDisp = targetClient ? targetClient.name : 'Cliente';
+      triggerNotification(`✅ Novo orçamento criado com a cubagem para ${clientNameDisp}!`);
+      onAddLog(`Novo orçamento gerado a partir da cubagem para ${clientNameDisp} (${newItems.length} itens).`);
+    }
+  };
+
+  // Export Romaneio de Pranchas em PDF com Extremo Destaque para Metragem e Valor Total
+  const handleExportPranchasPDF = () => {
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      
+      const curTh = parseFloat(blockCalcThickness) || 0;
+      const curWd = parseFloat(blockCalcWidth) || 0;
+      const curLen = parseFloat(blockCalcLength) || 0;
+      const curQty = parseInt(blockCalcQty, 10) || 1;
+      const unitVol = (curTh * curWd * curLen) / 10000;
+      const totalVol = unitVol * curQty;
+      const totalPrice = totalVol * blockCalcPrice;
+
+      const hasHistory = blockCalcHistory.length > 0;
+      const exportItems = hasHistory ? blockCalcHistory : [{
+        id: 'cur',
+        thickness: curTh,
+        width: curWd,
+        length: curLen,
+        qty: curQty,
+        volumeUnit: unitVol,
+        volumeTotal: totalVol,
+        price: blockCalcPrice,
+        value: totalPrice
+      }];
+
+      const grandTotalPcs = exportItems.reduce((acc, it) => acc + it.qty, 0);
+      const grandTotalM3 = exportItems.reduce((acc, it) => acc + it.volumeTotal, 0);
+      const grandTotalReais = exportItems.reduce((acc, it) => acc + it.value, 0);
+
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('pt-BR');
+      const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+      // Header Banner (Madeira / Amber escuro)
+      doc.setFillColor(120, 53, 15);
+      doc.rect(0, 0, 210, 32, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(15);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ORÇAFÁCIL PRO - ROMANEIO DE PRANCHAS E BLOCOS', 14, 14);
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Memorial Técnico e Romaneio de Madeira Serrada / M³ BLOCO', 14, 21);
+      doc.text(`Emissão: ${dateStr} às ${timeStr} | Documento Oficial de Medição`, 14, 27);
+
+      // DESTAQUE MÁXIMO PARA METRAGEM E VALOR TOTAL
+      // Caixa 1: Metragem Total
+      doc.setFillColor(254, 243, 199);
+      doc.setDrawColor(217, 119, 6);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(14, 38, 88, 30, 3, 3, 'FD');
+
+      doc.setTextColor(146, 64, 14);
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text('METRAGEM TOTAL CUBADA', 18, 45);
+
+      doc.setTextColor(120, 53, 15);
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${grandTotalM3.toFixed(3)} m³`, 18, 56);
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(180, 83, 9);
+      doc.text(`${grandTotalPcs} peça(s) no romaneio`, 18, 63);
+
+      // Caixa 2: Valor Total
+      doc.setFillColor(236, 253, 245);
+      doc.setDrawColor(16, 185, 129);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(108, 38, 88, 30, 3, 3, 'FD');
+
+      doc.setTextColor(6, 95, 70);
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text('VALOR TOTAL ESTIMADO', 112, 45);
+
+      doc.setTextColor(4, 120, 87);
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 112, 56);
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(5, 150, 105);
+      doc.text(`Preço base de serragem: R$ ${blockCalcPrice}/m³`, 112, 63);
+
+      // Table Header
+      let y = 78;
+      doc.setFillColor(39, 39, 42);
+      doc.rect(14, y, 182, 8, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ITEM', 17, y + 5.5);
+      doc.text('DIMENSÕES (ESP × LARG × COMP)', 35, y + 5.5);
+      doc.text('QTD', 102, y + 5.5);
+      doc.text('VOL. UNIT', 117, y + 5.5);
+      doc.text('VOL. TOTAL', 140, y + 5.5);
+      doc.text('TOTAL (R$)', 168, y + 5.5);
+
+      y += 8;
+
+      // Table Rows
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+
+      exportItems.forEach((it, idx) => {
+        if (y > 265) {
+          doc.addPage();
+          y = 20;
+        }
+
+        if (idx % 2 === 0) {
+          doc.setFillColor(244, 244, 245);
+          doc.rect(14, y, 182, 7.5, 'F');
+        }
+
+        doc.setTextColor(39, 39, 42);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`#${idx + 1}`, 17, y + 5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.text(`${it.thickness}cm × ${it.width}cm × ${it.length}m`, 35, y + 5);
+        doc.text(`${it.qty} pç${it.qty > 1 ? 's' : ''}`, 102, y + 5);
+        doc.text(`${it.volumeUnit.toFixed(3)} m³`, 117, y + 5);
+
+        doc.setFont('helvetica', 'bold');
+        doc.text(`${it.volumeTotal.toFixed(3)} m³`, 140, y + 5);
+
+        doc.setTextColor(6, 95, 70);
+        doc.text(`R$ ${it.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 168, y + 5);
+
+        y += 7.5;
+      });
+
+      // Total Row
+      y += 2;
+      doc.setFillColor(254, 243, 199);
+      doc.setDrawColor(217, 119, 6);
+      doc.setLineWidth(0.5);
+      doc.rect(14, y, 182, 9, 'FD');
+
+      doc.setTextColor(120, 53, 15);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text('SOMA GERAL DO ROMANEIO:', 17, y + 6);
+      doc.text(`${grandTotalPcs} pçs`, 102, y + 6);
+      doc.text(`${grandTotalM3.toFixed(3)} m³`, 140, y + 6);
+      doc.setTextColor(4, 120, 87);
+      doc.text(`R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 168, y + 6);
+
+      // Rodapé
+      y += 18;
+      if (y > 260) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.setTextColor(113, 113, 122);
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Fórmula de Cubagem M³ Bloco: Volume (m³) = (Espessura cm × Largura cm × Comprimento m) / 10.000.', 14, y);
+      doc.text('Documento gerado automaticamente pelo OrçaFácil Pro - Gestão Florestal e Desdobro de Madeiras.', 14, y + 4.5);
+
+      const fileName = `Romaneio_Pranchas_${Date.now()}.pdf`;
+      doc.save(fileName);
+      triggerNotification('📄 PDF do Romaneio de Pranchas baixado com sucesso!');
+      onAddLog(`PDF gerado: ${fileName} com ${grandTotalPcs} peças e ${grandTotalM3.toFixed(3)} m³.`);
+    } catch (err) {
+      console.error('Erro ao gerar PDF de pranchas:', err);
+      triggerNotification('Erro ao gerar PDF do romaneio.');
+    }
+  };
+
+  // Export Cubagem de Toras (Huber) em PDF com Extremo Destaque para Metragem e Valor Total
+  const handleExportTorasPDF = () => {
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      
+      const d = parseFloat(calcDiameter) || 0;
+      const l = parseFloat(calcLength) || 0;
+      const curVol = parseCubicMeters(d, l);
+      const curVal = Math.round(curVol * calcProductPrice * 100) / 100;
+
+      const hasHistory = calcHistory.length > 0;
+      const exportItems = hasHistory ? calcHistory : [{
+        id: 'cur-tora',
+        diameter: d,
+        length: l,
+        volume: curVol,
+        price: calcProductPrice,
+        value: curVal
+      }];
+
+      const grandTotalToras = exportItems.length;
+      const grandTotalM3 = exportItems.reduce((acc, it) => acc + it.volume, 0);
+      const grandTotalReais = exportItems.reduce((acc, it) => acc + it.value, 0);
+
+      const now = new Date();
+      const dateStr = now.toLocaleDateString('pt-BR');
+      const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+      // Header Banner (Indigo / Toras)
+      doc.setFillColor(49, 46, 129);
+      doc.rect(0, 0, 210, 32, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(15);
+      doc.setFont('helvetica', 'bold');
+      doc.text('ORÇAFÁCIL PRO - CUBAGEM DE TORAS (HUBER)', 14, 14);
+
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Memorial de Cubagem Volumétrica Florestal | Fórmula Oficial Huber', 14, 21);
+      doc.text(`Emissão: ${dateStr} às ${timeStr} | Documento Oficial de Medição Florestal`, 14, 27);
+
+      // DESTAQUE MÁXIMO PARA METRAGEM E VALOR TOTAL
+      // Caixa 1: Metragem Total
+      doc.setFillColor(238, 242, 255);
+      doc.setDrawColor(99, 102, 241);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(14, 38, 88, 30, 3, 3, 'FD');
+
+      doc.setTextColor(67, 56, 202);
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text('METRAGEM TOTAL DE TORAS', 18, 45);
+
+      doc.setTextColor(49, 46, 129);
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`${grandTotalM3.toFixed(3)} m³`, 18, 56);
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(79, 70, 229);
+      doc.text(`${grandTotalToras} tora(s) medidas no romaneio`, 18, 63);
+
+      // Caixa 2: Valor Total
+      doc.setFillColor(236, 253, 245);
+      doc.setDrawColor(16, 185, 129);
+      doc.setLineWidth(0.8);
+      doc.roundedRect(108, 38, 88, 30, 3, 3, 'FD');
+
+      doc.setTextColor(6, 95, 70);
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text('VALOR TOTAL ESTIMADO', 112, 45);
+
+      doc.setTextColor(4, 120, 87);
+      doc.setFontSize(20);
+      doc.setFont('helvetica', 'bold');
+      doc.text(`R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 112, 56);
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(5, 150, 105);
+      doc.text(`Preço base da tora: R$ ${calcProductPrice}/m³`, 112, 63);
+
+      // Table Header
+      let y = 78;
+      doc.setFillColor(30, 27, 75);
+      doc.rect(14, y, 182, 8, 'F');
+
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'bold');
+      doc.text('TORA #', 17, y + 5.5);
+      doc.text('DIÂMETRO NO MEIO (CM)', 40, y + 5.5);
+      doc.text('COMPRIMENTO (M)', 95, y + 5.5);
+      doc.text('VOLUME (M³)', 135, y + 5.5);
+      doc.text('VALOR ESTIMADO (R$)', 165, y + 5.5);
+
+      y += 8;
+
+      // Table Rows
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+
+      exportItems.forEach((it, idx) => {
+        if (y > 265) {
+          doc.addPage();
+          y = 20;
+        }
+
+        if (idx % 2 === 0) {
+          doc.setFillColor(244, 244, 245);
+          doc.rect(14, y, 182, 7.5, 'F');
+        }
+
+        doc.setTextColor(39, 39, 42);
+        doc.setFont('helvetica', 'bold');
+        doc.text(`#${idx + 1}`, 17, y + 5);
+
+        doc.setFont('helvetica', 'normal');
+        doc.text(`Ø ${it.diameter} cm`, 40, y + 5);
+        doc.text(`${it.length} m`, 95, y + 5);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(67, 56, 202);
+        doc.text(`${it.volume.toFixed(3)} m³`, 135, y + 5);
+
+        doc.setTextColor(6, 95, 70);
+        doc.text(`R$ ${it.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 165, y + 5);
+
+        y += 7.5;
+      });
+
+      // Total Row
+      y += 2;
+      doc.setFillColor(238, 242, 255);
+      doc.setDrawColor(99, 102, 241);
+      doc.setLineWidth(0.5);
+      doc.rect(14, y, 182, 9, 'FD');
+
+      doc.setTextColor(49, 46, 129);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text('SOMA TOTAL DE TORAS:', 17, y + 6);
+      doc.text(`${grandTotalToras} toras`, 95, y + 6);
+      doc.text(`${grandTotalM3.toFixed(3)} m³`, 135, y + 6);
+      doc.setTextColor(4, 120, 87);
+      doc.text(`R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 165, y + 6);
+
+      // Rodapé
+      y += 18;
+      if (y > 260) {
+        doc.addPage();
+        y = 20;
+      }
+      doc.setTextColor(113, 113, 122);
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Fórmula de Huber: Volume (m³) = (π × Diâmetro² em cm × Comprimento em metros) / 40.000.', 14, y);
+      doc.text('Documento gerado automaticamente pelo OrçaFácil Pro - Gestão Florestal e Cubagem de Toras.', 14, y + 4.5);
+
+      const fileName = `Cubagem_Toras_Huber_${Date.now()}.pdf`;
+      doc.save(fileName);
+      triggerNotification('📄 PDF de Cubagem de Toras baixado com sucesso!');
+      onAddLog(`PDF gerado: ${fileName} com ${grandTotalToras} toras e ${grandTotalM3.toFixed(3)} m³.`);
+    } catch (err) {
+      console.error('Erro ao gerar PDF de toras:', err);
+      triggerNotification('Erro ao gerar PDF de toras.');
+    }
+  };
+
+  // Export Romaneio de Pranchas em PNG de Alta Resolução
+  const handleExportPranchasPNG = async () => {
+    await handleExportAsImage('pranchas-calculator-export-card', '#0a0a0a');
+  };
+
+  // Export Cubagem de Toras em PNG de Alta Resolução
+  const handleExportTorasPNG = async () => {
+    await handleExportAsImage('toras-calculator-export-card', '#0a0a0a');
+  };
+
+  const renderBlockCalculatorUI = () => {
+    const curTh = parseFloat(blockCalcThickness) || 0;
+    const curWd = parseFloat(blockCalcWidth) || 0;
+    const curLen = parseFloat(blockCalcLength) || 0;
+    const curQty = parseInt(blockCalcQty, 10) || 1;
+    const unitVol = (curTh * curWd * curLen) / 10000;
+    const totalVol = unitVol * curQty;
+    const totalPrice = totalVol * blockCalcPrice;
+
+    const historyTotalPcs = blockCalcHistory.reduce((sum, item) => sum + item.qty, 0);
+    const historyTotalVol = blockCalcHistory.reduce((sum, item) => sum + item.volumeTotal, 0);
+    const historyTotalVal = blockCalcHistory.reduce((sum, item) => sum + item.value, 0);
+
+    const visibleBlockHistory = showAllBlockHistory 
+      ? blockCalcHistory 
+      : blockCalcHistory.slice(0, 5);
+
+    return (
+      <div id="pranchas-calculator-export-card" className="bg-gradient-to-br from-amber-950/40 via-neutral-950 to-neutral-950 p-4 sm:p-6 rounded-2xl border border-amber-900/50 flex flex-col gap-5 shadow-2xl">
+        {/* Header Title */}
+        <div className="flex justify-between items-center pb-3 border-b border-amber-900/40">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+              <Box className="w-6 h-6 stroke-[2.2]" />
+            </div>
+            <div>
+              <span className="text-sm sm:text-base uppercase tracking-wider text-amber-400 font-black font-sans block">
+                Calculadora & Romaneio de Pranchas
+              </span>
+              <span className="text-xs text-zinc-300 font-medium block mt-0.5">
+                Desdobro de Toras / Pranchas Serradas / Blocos Retangulares
+              </span>
+            </div>
+          </div>
+          <span className="text-xs bg-amber-900/80 text-amber-200 px-3 py-1 rounded-xl border border-amber-600/50 font-mono font-black uppercase">
+            M³ BLOCO
+          </span>
+        </div>
+
+        {/* STEP 1: Medidas */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-amber-500 text-neutral-950 font-black text-xs flex items-center justify-center">1</span>
+            <span className="text-xs sm:text-sm font-extrabold uppercase text-amber-300 tracking-wide">
+              Informe as Dimensões da Madeira
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-neutral-900/60 p-4 rounded-xl border border-neutral-800">
+            {/* 1. Espessura */}
+            <div>
+              <label className="text-xs text-zinc-200 font-extrabold uppercase tracking-wider block mb-1.5">
+                Espessura (cm)
+              </label>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => setBlockCalcThickness(String(Math.max(1, curTh - 1)))}
+                  className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
+                >
+                  -
+                </button>
+                <input 
+                  type="number" 
+                  value={blockCalcThickness} 
+                  onChange={(e) => setBlockCalcThickness(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-700 rounded-xl py-3 text-center font-mono text-lg text-amber-400 outline-none font-extrabold focus:border-amber-500"
+                />
+                <button 
+                  type="button"
+                  onClick={() => setBlockCalcThickness(String(curTh + 1))}
+                  className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
+                >
+                  +
+                </button>
+              </div>
+              {/* Quick Presets */}
+              <div className="flex gap-1.5 overflow-x-auto pt-2 scrollbar-none">
+                {[5, 8, 10, 12, 15, 20].map(thVal => (
+                  <button
+                    key={thVal}
+                    type="button"
+                    onClick={() => setBlockCalcThickness(String(thVal))}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border shrink-0 transition-all ${curTh === thVal ? 'bg-amber-500 text-neutral-950 border-amber-400 shadow-sm' : 'bg-neutral-900 text-zinc-300 border-neutral-800 hover:text-white'}`}
+                  >
+                    {thVal}cm
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 2. Largura */}
+            <div>
+              <label className="text-xs text-zinc-200 font-extrabold uppercase tracking-wider block mb-1.5">
+                Largura (cm)
+              </label>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => setBlockCalcWidth(String(Math.max(1, curWd - 2)))}
+                  className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
+                >
+                  -
+                </button>
+                <input 
+                  type="number" 
+                  value={blockCalcWidth} 
+                  onChange={(e) => setBlockCalcWidth(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-700 rounded-xl py-3 text-center font-mono text-lg text-amber-400 outline-none font-extrabold focus:border-amber-500"
+                />
+                <button 
+                  type="button"
+                  onClick={() => setBlockCalcWidth(String(curWd + 2))}
+                  className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
+                >
+                  +
+                </button>
+              </div>
+              {/* Quick Presets */}
+              <div className="flex gap-1.5 overflow-x-auto pt-2 scrollbar-none">
+                {[15, 20, 25, 30, 40, 50].map(wdVal => (
+                  <button
+                    key={wdVal}
+                    type="button"
+                    onClick={() => setBlockCalcWidth(String(wdVal))}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border shrink-0 transition-all ${curWd === wdVal ? 'bg-amber-500 text-neutral-950 border-amber-400 shadow-sm' : 'bg-neutral-900 text-zinc-300 border-neutral-800 hover:text-white'}`}
+                  >
+                    {wdVal}cm
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 3. Comprimento */}
+            <div>
+              <label className="text-xs text-zinc-200 font-extrabold uppercase tracking-wider block mb-1.5">
+                Comprimento (Metros)
+              </label>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => setBlockCalcLength(String(Math.max(0.5, parseFloat((curLen - 0.5).toFixed(1)))))}
+                  className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
+                >
+                  -
+                </button>
+                <input 
+                  type="number" 
+                  step="0.1"
+                  value={blockCalcLength} 
+                  onChange={(e) => setBlockCalcLength(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-700 rounded-xl py-3 text-center font-mono text-lg text-amber-400 outline-none font-extrabold focus:border-amber-500"
+                />
+                <button 
+                  type="button"
+                  onClick={() => setBlockCalcLength(String(parseFloat((curLen + 0.5).toFixed(1))))}
+                  className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
+                >
+                  +
+                </button>
+              </div>
+              {/* Quick Presets */}
+              <div className="flex gap-1.5 overflow-x-auto pt-2 scrollbar-none">
+                {[2, 2.5, 3, 4, 5, 6].map(lenVal => (
+                  <button
+                    key={lenVal}
+                    type="button"
+                    onClick={() => setBlockCalcLength(String(lenVal))}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border shrink-0 transition-all ${curLen === lenVal ? 'bg-amber-500 text-neutral-950 border-amber-400 shadow-sm' : 'bg-neutral-900 text-zinc-300 border-neutral-800 hover:text-white'}`}
+                  >
+                    {lenVal}m
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 4. Quantidade de Peças */}
+            <div>
+              <label className="text-xs text-zinc-200 font-extrabold uppercase tracking-wider block mb-1.5">
+                Qtd de Peças
+              </label>
+              <div className="flex items-center gap-2">
+                <button 
+                  type="button"
+                  onClick={() => setBlockCalcQty(String(Math.max(1, curQty - 1)))}
+                  className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
+                >
+                  -
+                </button>
+                <input 
+                  type="number" 
+                  value={blockCalcQty} 
+                  onChange={(e) => setBlockCalcQty(e.target.value)}
+                  className="w-full bg-neutral-950 border border-neutral-700 rounded-xl py-3 text-center font-mono text-lg text-amber-400 outline-none font-extrabold focus:border-amber-500"
+                />
+                <button 
+                  type="button"
+                  onClick={() => setBlockCalcQty(String(curQty + 1))}
+                  className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
+                >
+                  +
+                </button>
+              </div>
+              {/* Quick Presets */}
+              <div className="flex gap-1.5 overflow-x-auto pt-2 scrollbar-none">
+                {[1, 2, 5, 10, 20, 50].map(qVal => (
+                  <button
+                    key={qVal}
+                    type="button"
+                    onClick={() => setBlockCalcQty(String(qVal))}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-mono font-bold border shrink-0 transition-all ${curQty === qVal ? 'bg-amber-500 text-neutral-950 border-amber-400 shadow-sm' : 'bg-neutral-900 text-zinc-300 border-neutral-800 hover:text-white'}`}
+                  >
+                    {qVal} pçs
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* STEP 2: Preço e Resultado do Lote */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-amber-500 text-neutral-950 font-black text-xs flex items-center justify-center">2</span>
+            <span className="text-xs sm:text-sm font-extrabold uppercase text-amber-300 tracking-wide">
+              Preço do Metro Cúbico & Resultado
+            </span>
+          </div>
+
+          <div className="bg-neutral-950 p-4 sm:p-5 rounded-2xl border border-neutral-800 flex flex-col gap-4 shadow-inner">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-xs text-zinc-300 font-bold uppercase tracking-wide block">
+                Valor do Metro Cúbico de Serragem (R$ / m³)
+              </label>
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-400 font-black text-sm font-mono">R$</span>
+                <input 
+                  type="number" 
+                  value={blockCalcPrice} 
+                  onChange={(e) => setBlockCalcPrice(parseFloat(e.target.value) || 0)}
+                  placeholder="Ex: 450"
+                  className="w-full bg-neutral-900 border border-neutral-700 rounded-xl py-3 px-3.5 text-left font-mono text-base text-amber-400 outline-none font-extrabold focus:border-amber-500 transition-all"
+                />
+              </div>
+            </div>
+
+            {/* PAINEL DE DESTAQUE MÁXIMO: METRAGEM TOTAL E VALOR TOTAL */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-1">
+              {/* Caixa 1: Metragem Total com Extremo Destaque */}
+              <div className="bg-gradient-to-b from-amber-950/80 via-neutral-900 to-neutral-950 border-2 border-amber-500/90 p-4 sm:p-5 rounded-2xl shadow-2xl flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs sm:text-sm text-amber-300 uppercase font-black tracking-wider flex items-center gap-1.5">
+                      <span>📐</span> METRAGEM TOTAL CUBADA
+                    </span>
+                    <span className="text-[11px] bg-amber-500/20 text-amber-300 font-mono font-bold px-2 py-0.5 rounded-full border border-amber-500/30">
+                      M³ BLOCO
+                    </span>
+                  </div>
+                  <span className="text-xs text-zinc-300 font-medium block mt-1">
+                    {curQty} peça{curQty > 1 ? 's' : ''} ({unitVol.toFixed(3)} m³/peça)
+                  </span>
+                </div>
+                <div className="mt-3">
+                  <strong className="text-amber-400 font-mono text-3xl sm:text-4xl lg:text-5xl font-black block tracking-tight drop-shadow-md">
+                    {totalVol.toFixed(3)} m³
+                  </strong>
+                  <span className="text-xs text-amber-200/90 font-mono font-bold block mt-1.5">
+                    {curTh}cm (esp) × {curWd}cm (larg) × {curLen}m (comp)
+                  </span>
+                </div>
+              </div>
+
+              {/* Caixa 2: Valor Total com Extremo Destaque */}
+              <div className="bg-gradient-to-b from-emerald-950/80 via-neutral-900 to-neutral-950 border-2 border-emerald-500/90 p-4 sm:p-5 rounded-2xl shadow-2xl flex flex-col justify-between">
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs sm:text-sm text-emerald-300 uppercase font-black tracking-wider flex items-center gap-1.5">
+                      <span>💰</span> VALOR TOTAL ESTIMADO
+                    </span>
+                    <span className="text-[11px] bg-emerald-500/20 text-emerald-300 font-mono font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                      R$ / M³
+                    </span>
+                  </div>
+                  <span className="text-xs text-zinc-300 font-medium block mt-1">
+                    Preço base: R$ {blockCalcPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / m³
+                  </span>
+                </div>
+                <div className="mt-3">
+                  <span className="text-emerald-400 font-mono font-black text-2xl sm:text-3xl lg:text-4xl block tracking-tight drop-shadow-md">
+                    R$ {totalPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                  <span className="text-xs text-emerald-300/90 font-mono font-bold block mt-1.5">
+                    R$ {(unitVol * blockCalcPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} por peça
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* STEP 3: Botões de Ação e Exportação Individual */}
+        <div className="space-y-3">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              type="button"
+              onClick={addBlockToHistory}
+              className="flex-1 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black py-4 px-5 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer border border-amber-400 shadow-lg shadow-amber-950/40"
+            >
+              <span>➕ Guardar Lote no Romaneio</span>
+              <span className="font-mono bg-amber-950 text-amber-200 text-xs px-2 py-0.5 rounded-md">({curQty} pçs)</span>
+            </button>
+            {blockCalcHistory.length > 0 && (
+              <button
+                type="button"
+                onClick={clearBlockHistory}
+                className="bg-neutral-900 border border-neutral-700 hover:bg-red-950/50 hover:text-red-300 text-zinc-300 font-extrabold px-5 py-4 rounded-xl text-xs sm:text-sm cursor-pointer transition-all active:scale-[0.98] flex items-center justify-center gap-1.5"
+                title="Limpar todos os lotes do romaneio"
+              >
+                🗑️ Limpar Romaneio
+              </button>
+            )}
+          </div>
+
+          {/* Individual Export Buttons for Pranchas Romaneio */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+            <button
+              type="button"
+              onClick={handleExportPranchasPDF}
+              className="bg-neutral-900 hover:bg-neutral-850 text-amber-300 border-2 border-amber-600/60 hover:border-amber-500 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+              title="Exportar Romaneio de Pranchas em PDF com metragem e valor total destacados"
+            >
+              <FileDown className="w-4 h-4 text-amber-400 stroke-[2.5]" />
+              <span>📄 Exportar Romaneio (PDF)</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleExportPranchasPNG}
+              className="bg-neutral-900 hover:bg-neutral-850 text-emerald-300 border-2 border-emerald-600/60 hover:border-emerald-500 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+              title="Exportar Romaneio de Pranchas em Imagem PNG de alta definição"
+            >
+              <Share2 className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
+              <span>📸 Exportar Romaneio (PNG)</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Romaneio Table / Saved Items List (NO inner scroll trap!) */}
+        {blockCalcHistory.length > 0 && (
+          <div className="bg-neutral-950 p-4 sm:p-5 rounded-2xl border border-amber-900/50 font-sans space-y-4 shadow-xl">
+            <div className="flex justify-between items-center pb-3 border-b border-amber-900/40">
+              <div className="flex items-center gap-2">
+                <Layers className="w-5 h-5 text-amber-400" />
+                <span className="text-xs sm:text-sm text-amber-300 uppercase font-black tracking-wider">
+                  Romaneio Salvo ({blockCalcHistory.length} Lote{blockCalcHistory.length > 1 ? 's' : ''})
+                </span>
+              </div>
+              <div className="text-right flex flex-col leading-tight">
+                <span className="text-sm font-mono text-emerald-400 font-black">
+                  Total: R$ {historyTotalVal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span className="text-xs font-mono text-amber-300 font-bold mt-0.5">
+                  {historyTotalPcs} pçs | {historyTotalVol.toFixed(3)} m³
+                </span>
+              </div>
+            </div>
+
+            {/* Render items naturally in standard layout (NO max-h overflow-y-auto!) */}
+            <div className="space-y-2.5">
+              {visibleBlockHistory.map((item, index) => (
+                <div key={item.id} className="flex justify-between items-center text-xs sm:text-sm bg-neutral-900 p-3.5 rounded-xl border border-neutral-800 font-mono shadow-sm hover:border-amber-900/50 transition-colors">
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-amber-500 font-black text-xs">#{blockCalcHistory.length - index}</span>
+                      <span className="text-zinc-100 font-black">{item.qty}x Pranchas</span>
+                      <span className="text-amber-300 font-extrabold bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">
+                        {item.thickness}×{item.width}cm × {item.length}m
+                      </span>
+                    </div>
+                    <span className="text-xs text-zinc-400">
+                      Volume: <strong className="text-zinc-200 font-bold">{item.volumeTotal.toFixed(3)} m³</strong> ({item.volumeUnit.toFixed(3)} m³/pç) @ R$ {item.price}/m³
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-emerald-400 font-black text-sm sm:text-base">
+                      R$ {item.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBlockCalcHistory(prev => prev.filter(x => x.id !== item.id));
+                        triggerNotification("Lote removido do romaneio!");
+                      }}
+                      className="bg-neutral-800 hover:bg-rose-950 hover:text-rose-400 text-zinc-400 px-2.5 py-1.5 rounded-lg border border-neutral-700 transition-colors cursor-pointer text-xs font-bold"
+                      title="Excluir este lote"
+                    >
+                      ✕ Excluir
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Toggle show all items if > 5 */}
+            {blockCalcHistory.length > 5 && (
+              <button
+                type="button"
+                onClick={() => setShowAllBlockHistory(!showAllBlockHistory)}
+                className="w-full py-2.5 text-xs text-amber-400 font-extrabold bg-neutral-900 hover:bg-neutral-850 border border-amber-900/40 rounded-xl transition-colors cursor-pointer"
+              >
+                {showAllBlockHistory 
+                  ? '▲ Mostrar menos lotes' 
+                  : `📋 Expandir ver todos os ${blockCalcHistory.length} lotes do romaneio`}
+              </button>
+            )}
+
+            {/* Injetar no Orçamento do Cliente button */}
+            <button
+              type="button"
+              onClick={() => openAttachWoodModal('block_history')}
+              className="w-full bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black py-4 px-5 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-amber-950/30 active:scale-[0.98] mt-2"
+            >
+              <Receipt className="w-5 h-5 stroke-[2.5]" />
+              <span>📥 Transferir Romaneio para o Orçamento do Cliente</span>
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   // Start new budget selection methods
   const [prodDimensions, setProdDimensions] = useState<Record<string, { width: number; length: number; diameter: number }>>({});
@@ -2488,6 +3786,63 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
       onAddLog('⚠️ Alerta de Integridade: Gravando orçamento sem teste prévio de disco local (APK Filesystem / DOMStorage).');
     }
 
+    // Check if we are updating an existing budget vs creating a brand new one
+    if (editingBudgetId) {
+      let updatedObj: Budget | null = null;
+      setBudgets(prev => prev.map(b => {
+        if (b.id === editingBudgetId) {
+          const updatedBudget: Budget = {
+            ...b,
+            clientId: targetClient!.id,
+            clientName: targetClient!.name,
+            items: finalItems,
+            discount: typeof bDiscount === 'number' ? bDiscount : (parseFloat(String(bDiscount)) || 0),
+            freight: typeof bFreight === 'number' ? bFreight : (parseFloat(String(bFreight)) || 0),
+            observations: bObs,
+            subtotal: calculatedSubtotal,
+            total: calculatedTotal,
+            validityDays: typeof bValidity === 'number' ? bValidity : (parseInt(String(bValidity), 10) || 10),
+            version: b.version + 1,
+            updateHistory: [
+              ...b.updateHistory,
+              {
+                timestamp: new Date().toLocaleString(),
+                action: `Revisão de Itens (v${b.version + 1})`,
+                description: 'Inclusão/alteração de materiais e cubagem em orçamento pré-existente.'
+              }
+            ]
+          };
+          updatedObj = updatedBudget;
+          return updatedBudget;
+        }
+        return b;
+      }));
+
+      setIsCreatingBudget(false);
+      
+      // Reset draft fields
+      setBSelectedClient(null);
+      setBNewClientName('');
+      setBNewClientPhone('');
+      setBNewClientAddress('');
+      setBItems([]);
+      setBDiscount(0);
+      setBFreight(0);
+      setBObs('');
+      setBWizardStep(1);
+      setWizardGpsCoords('');
+      setWizardWoodPhoto('');
+
+      if (updatedObj) {
+        setViewingBudget(updatedObj);
+      }
+
+      triggerNotification(`Orçamento atualizado com sucesso (v+1)!`);
+      onAddLog(`Orçamento pré-existente ${editingBudgetId} atualizado com nova cubagem/materiais.`);
+      setEditingBudgetId(null);
+      return;
+    }
+
     const cleanBudget: Budget = {
       id: 'b_' + Date.now(),
       number: `ORC-2026-00${nextNum}`,
@@ -2512,6 +3867,7 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
 
     setBudgets([cleanBudget, ...budgets]);
     setIsCreatingBudget(false);
+    setEditingBudgetId(null);
     
     // Reset draft fields
     setBSelectedClient(null);
@@ -2650,7 +4006,7 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   };
 
   // Modern HTML-to-Image converter optimized for mobile device screens and WebViews (APKs)
-  const handleExportAsImage = async (elementId: string) => {
+  const handleExportAsImage = async (elementId: string, customBgColor?: string) => {
     const el = document.getElementById(elementId);
     if (!el) {
       triggerNotification('Erro ao renderizar imagem: container não foi localizado.');
@@ -2660,6 +4016,8 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
     setIsGeneratingImg(true);
     triggerNotification('Gerando imagem de alta fidelidade (.png)...');
     
+    const bgColor = customBgColor || '#f4f4f5';
+
     // Create an off-screen container for clone rendering to bypass WebView overflow/scroll limits
     const offscreenContainer = document.createElement('div');
     offscreenContainer.style.position = 'absolute';
@@ -2668,7 +4026,7 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
     offscreenContainer.style.width = '380px';
     offscreenContainer.style.height = 'auto';
     offscreenContainer.style.overflow = 'visible';
-    offscreenContainer.style.background = '#f4f4f5';
+    offscreenContainer.style.background = bgColor;
     offscreenContainer.style.zIndex = '-9999';
     
     try {
@@ -2683,7 +4041,7 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
       clone.style.width = '380px';
       clone.style.padding = '16px';
       clone.style.boxSizing = 'border-box';
-      clone.style.backgroundColor = '#f4f4f5';
+      clone.style.backgroundColor = bgColor;
       
       // Remove tailwind utility classes that constrain layout heights in parent container
       clone.className = clone.className
@@ -2699,7 +4057,7 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
       await new Promise(r => setTimeout(r, 150));
       
       const dataUrl = await toPng(clone, {
-        backgroundColor: '#f4f4f5', // Soft zinc-100 paper-like background
+        backgroundColor: bgColor,
         pixelRatio: 2.0, // 2x density is perfect for high-fidelity vector text and extremely stable in WebViews
         cacheBust: true,
         style: {
@@ -2712,10 +4070,10 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
       });
       
       setGeneratedImg(dataUrl);
-      triggerNotification('📸 Imagem do Orçamento Gerada!');
+      triggerNotification('📸 Imagem Gerada com Sucesso!');
     } catch (err) {
       console.error('Error generating image:', err);
-      triggerNotification('Falha ao gerar imagem do orçamento. Tentando novamente...');
+      triggerNotification('Falha ao gerar imagem. Tentando novamente...');
     } finally {
       // Clean up DOM safely
       if (document.body.contains(offscreenContainer)) {
@@ -3791,43 +5149,16 @@ ${itemRows}
             transition={{ duration: 0.28, ease: 'easeOut' }}
             className="absolute inset-x-0 bottom-0 top-[60px] bg-neutral-900 border-t border-neutral-800 z-[80] flex flex-col p-4 overflow-y-auto"
           >
-          <div className="flex justify-between items-center border-b border-neutral-800 pb-2 mb-3">
+          <div className="flex justify-between items-center border-b border-neutral-800 pb-3 mb-4">
             <div>
-              <span className="font-bold text-zinc-200 text-sm">Painel Técnico SQLite</span>
-              <p className="text-[9px] text-zinc-500">Apenas para auditores e gerentes</p>
+              <span className="font-extrabold text-amber-500 text-sm sm:text-base uppercase tracking-wider block">⚙️ Configurações do Aplicativo</span>
+              <p className="text-[10px] sm:text-xs text-zinc-400">Personalize os dados da sua empresa, acessibilidade e permissões</p>
             </div>
             <button 
               onClick={() => setShowAdmin(false)}
-              className="bg-neutral-800 hover:bg-neutral-700 text-zinc-105 px-3 py-1 rounded text-xs select-none cursor-pointer"
+              className="bg-amber-600 hover:bg-amber-500 text-neutral-950 font-black px-4 py-2 rounded-xl text-xs uppercase tracking-wide select-none cursor-pointer transition-all active:scale-95 shadow-lg"
             >
-              Fechar Ajustes
-            </button>
-          </div>
-
-          <div className="grid grid-cols-4 gap-1.5 mb-4 p-1 bg-neutral-950 rounded-lg border border-neutral-800">
-            <button
-              onClick={() => setAdminTab('import')}
-              className={`py-2 rounded font-bold text-[10px] cursor-text transition-all ${adminTab === 'import' ? 'bg-emerald-600 text-neutral-950' : 'text-zinc-400 hover:bg-neutral-900'}`}
-            >
-              Preços (TXT)
-            </button>
-            <button
-              onClick={() => setAdminTab('database')}
-              className={`py-2 rounded font-bold text-[10px] cursor-text transition-all ${adminTab === 'database' ? 'bg-emerald-600 text-neutral-950' : 'text-zinc-400 hover:bg-neutral-900'}`}
-            >
-              Tabelas SQLite
-            </button>
-            <button
-              onClick={() => setAdminTab('stresstest')}
-              className={`py-2 rounded font-bold text-[10px] cursor-text transition-all ${adminTab === 'stresstest' ? 'bg-amber-600 text-neutral-950 font-black' : 'text-zinc-400 hover:bg-neutral-900'}`}
-            >
-              Teste Estresse
-            </button>
-            <button
-              onClick={() => setAdminTab('settings')}
-              className={`py-2 rounded font-bold text-[10px] cursor-text transition-all ${adminTab === 'settings' ? 'bg-indigo-600 text-white font-black' : 'text-zinc-400 hover:bg-neutral-900'}`}
-            >
-              Preferências
+              ✓ Concluído
             </button>
           </div>
 
@@ -4136,6 +5467,121 @@ ${itemRows}
 
             {adminTab === 'settings' && (
               <div className="flex flex-col gap-4">
+                {/* 🏢 DADOS DA EMPRESA (CABEÇALHO DOS ORÇAMENTOS) */}
+                <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 space-y-4 shadow-lg">
+                  <div className="flex items-center gap-2.5 border-b border-neutral-800 pb-3">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-500 shrink-0">
+                      <Building className="w-4.5 h-4.5" />
+                    </div>
+                    <div>
+                      <span className="font-extrabold text-zinc-100 text-sm uppercase tracking-wide block">Dados da Sua Empresa</span>
+                      <span className="text-[11px] text-zinc-400 font-medium">Estes dados aparecem no topo dos orçamentos, PDFs e notas</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                    <div>
+                      <label className="text-[11px] font-extrabold text-amber-500 uppercase tracking-wide block mb-1">Nome da Empresa / Razão Social</label>
+                      <input
+                        type="text"
+                        value={companyProfile.companyName}
+                        onChange={(e) => setCompanyProfile({ ...companyProfile, companyName: e.target.value })}
+                        placeholder="Ex: Madeireira Silva & Cia"
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-3 text-xs sm:text-sm text-zinc-100 font-bold outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-extrabold text-amber-500 uppercase tracking-wide block mb-1">Nome do Proprietário / Responsável</label>
+                      <input
+                        type="text"
+                        value={companyProfile.ownerName}
+                        onChange={(e) => setCompanyProfile({ ...companyProfile, ownerName: e.target.value })}
+                        placeholder="Ex: Carlos Eduardo Silva"
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-3 text-xs sm:text-sm text-zinc-100 font-bold outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-extrabold text-amber-500 uppercase tracking-wide block mb-1">CNPJ</label>
+                      <input
+                        type="text"
+                        value={companyProfile.cnpj}
+                        onChange={(e) => setCompanyProfile({ ...companyProfile, cnpj: e.target.value })}
+                        placeholder="00.000.000/0001-00"
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-3 text-xs sm:text-sm text-zinc-100 font-bold font-mono outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-extrabold text-amber-500 uppercase tracking-wide block mb-1">CPF (Opcional se houver CNPJ)</label>
+                      <input
+                        type="text"
+                        value={companyProfile.cpf}
+                        onChange={(e) => setCompanyProfile({ ...companyProfile, cpf: e.target.value })}
+                        placeholder="000.000.000-00"
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-3 text-xs sm:text-sm text-zinc-100 font-bold font-mono outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-extrabold text-amber-500 uppercase tracking-wide block mb-1">Telefone / WhatsApp</label>
+                      <input
+                        type="text"
+                        value={companyProfile.phone}
+                        onChange={(e) => setCompanyProfile({ ...companyProfile, phone: formatBrazilianPhoneNumber(e.target.value) })}
+                        placeholder="(00) 00000-0000"
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-3 text-xs sm:text-sm text-zinc-100 font-bold font-mono outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-extrabold text-amber-500 uppercase tracking-wide block mb-1">E-mail de Contato</label>
+                      <input
+                        type="email"
+                        value={companyProfile.email}
+                        onChange={(e) => setCompanyProfile({ ...companyProfile, email: e.target.value })}
+                        placeholder="contato@empresa.com.br"
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-3 text-xs sm:text-sm text-zinc-100 font-bold outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-extrabold text-amber-500 uppercase tracking-wide block mb-1">Endereço da Empresa</label>
+                      <input
+                        type="text"
+                        value={companyProfile.address}
+                        onChange={(e) => setCompanyProfile({ ...companyProfile, address: e.target.value })}
+                        placeholder="Rua / Av / Rodovia, Número - Bairro"
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-3 text-xs sm:text-sm text-zinc-100 font-bold outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[11px] font-extrabold text-amber-500 uppercase tracking-wide block mb-1">Cidade / Estado</label>
+                      <input
+                        type="text"
+                        value={companyProfile.cityState}
+                        onChange={(e) => setCompanyProfile({ ...companyProfile, cityState: e.target.value })}
+                        placeholder="São Paulo - SP"
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-3 text-xs sm:text-sm text-zinc-100 font-bold outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        triggerNotification('✓ Dados da empresa salvos com sucesso!');
+                      }}
+                      className="w-full bg-emerald-500 hover:bg-emerald-400 active:scale-98 text-neutral-950 font-black py-3.5 rounded-xl text-xs uppercase tracking-wider transition-all select-none shadow-lg cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <Check className="w-4 h-4 stroke-[3]" />
+                      <span>Salvar Dados da Empresa</span>
+                    </button>
+                  </div>
+                </div>
                 <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-850 space-y-4">
                   <div className="flex items-center gap-2 border-b border-neutral-850 pb-2">
                     <Settings className="w-4 h-4 text-emerald-400 animate-[spin_6s_linear_infinite]" />
@@ -4156,6 +5602,33 @@ ${itemRows}
                     </div>
                     <p className="text-[10px] text-zinc-500 leading-normal">
                       Ao clicar no "X" no canto do card, ele é ocultado. Você pode reativá-lo para que volte a aparecer na tela inicial do <span className="font-semibold text-amber-500">Modo Fácil</span>.
+                    </p>
+                  </div>
+
+                  {/* Toggle Quick Guide */}
+                  <div className="space-y-1.5 pt-3 border-t border-neutral-800">
+                    <div className="flex justify-between items-center">
+                      <span className="text-xs font-bold text-zinc-305">Exibir Guia Rápido de Operação</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = !showQuickGuide;
+                          setShowQuickGuide(next);
+                          try {
+                            if (typeof window !== 'undefined' && window.localStorage) {
+                              window.localStorage.setItem('orcafacil_quick_guide_seen', next ? 'false' : 'true');
+                            }
+                          } catch (e) {
+                            console.warn(e);
+                          }
+                        }}
+                        className={`w-10 h-5.5 rounded-full p-0.5 transition-colors cursor-pointer select-none ${showQuickGuide ? 'bg-amber-500' : 'bg-neutral-800'}`}
+                      >
+                        <div className={`w-4.5 h-4.5 bg-neutral-950 rounded-full shadow-md transition-transform ${showQuickGuide ? 'translate-x-4.5' : 'translate-x-0'}`} />
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-zinc-500 leading-normal">
+                      Exibe as instruções iniciais. O guia só aparece automaticamente na 1ª vez após a instalação.
                     </p>
                   </div>
 
@@ -4351,11 +5824,19 @@ ${itemRows}
                         <li>Defina taxas extras de frete se houver e valide!</li>
                       </ol>
                     </div>
+                    <button
+                      type="button"
+                      onClick={handleDismissQuickGuide}
+                      className="text-neutral-950/70 hover:text-neutral-950 font-black text-lg p-1 leading-none cursor-pointer transition-colors"
+                      title="Fechar Guia"
+                    >
+                      ×
+                    </button>
                   </div>
                   <div className="mt-5">
                     <button 
                       type="button"
-                      onClick={() => setShowQuickGuide(false)}
+                      onClick={handleDismissQuickGuide}
                       className="bg-neutral-950 hover:bg-black text-amber-400 hover:text-amber-300 px-4 py-3 rounded-xl text-xs font-black cursor-pointer uppercase shadow-lg active:scale-[0.97] transition-all w-full text-center tracking-wider border border-amber-500/20"
                     >
                       Entendi, Vamos Começar ×
@@ -4583,14 +6064,14 @@ ${itemRows}
           >
               <div className="flex justify-between items-center bg-neutral-900 border border-neutral-800/60 p-3 rounded-2xl shadow-sm">
                 <div className="flex items-center gap-2">
-                  <Users className="w-5 h-5 text-emerald-400" />
+                  <Users2 className="w-5 h-5 text-emerald-400" />
                   <h3 className="font-extrabold text-sm text-emerald-400 font-sans tracking-wide">Banco de Clientes</h3>
                 </div>
                 <button 
                   onClick={() => setIsAddingClient(true)}
                   className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-neutral-950 px-4 py-2 rounded-xl flex items-center gap-1.5 font-bold text-xs cursor-pointer select-none shadow"
                 >
-                  <Plus className="w-4 h-4 stroke-[2.5]" /> Cadastrar Novo
+                  <UserPlus className="w-4 h-4 stroke-[2.5]" /> Cadastrar Novo
                 </button>
               </div>
 
@@ -4878,20 +6359,80 @@ ${itemRows}
 
                     {/* Transaction History list */}
                     <div>
-                      <h4 className="text-[9px] text-zinc-400 uppercase font-black tracking-wider mb-1.5 block">Histórico de Pedidos ({budgets.filter(b => b.clientId === selectedClient.id).length})</h4>
-                      <div className="space-y-1.5 max-h-[140px] overflow-y-auto pr-0.5">
+                      <div className="flex justify-between items-center mb-1.5">
+                        <h4 className="text-[9px] text-zinc-400 uppercase font-black tracking-wider block">Histórico de Pedidos ({budgets.filter(b => b.clientId === selectedClient.id).length})</h4>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            startNewBudget();
+                            setBSelectedClient(selectedClient);
+                            setBClientSelectionMode('existing');
+                            setSelectedClient(null);
+                            setActiveTab('budgets');
+                          }}
+                          className="text-[9px] text-amber-400 hover:text-amber-300 font-extrabold uppercase flex items-center gap-1 cursor-pointer"
+                        >
+                          <span>➕ Novo Orçamento</span>
+                        </button>
+                      </div>
+                      <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-0.5">
                         {budgets.filter(b => b.clientId === selectedClient.id).length === 0 ? (
                           <span className="text-[10px] text-zinc-500 block italic leading-relaxed bg-neutral-950 p-3 rounded-xl border border-neutral-800">Este cliente ainda não comprou toras ou réguas neste celular offline.</span>
                         ) : (
                           budgets.filter(b => b.clientId === selectedClient.id).map(b => (
-                            <div key={b.id} className="bg-neutral-950/70 p-2.5 rounded-xl flex justify-between items-center border border-neutral-800/60 font-mono text-[10.5px]">
-                              <span className="font-extrabold text-zinc-300">{b.number}</span>
-                              <div className="flex items-center gap-2">
-                                <span className="text-zinc-400 font-bold">R$ {b.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                <span className={`text-[7.5px] px-1.5 py-0.5 uppercase font-black rounded ${
-                                  b.status === 'Vendido' ? 'bg-emerald-950 text-emerald-400 border border-emerald-900/30' :
-                                  b.status === 'Aguardando Cliente' ? 'bg-amber-950 text-amber-500' : 'bg-neutral-800 text-zinc-400'
-                                }`}>{b.status}</span>
+                            <div key={b.id} className="bg-neutral-950/90 p-2.5 rounded-xl border border-neutral-800/80 font-mono text-[10.5px] space-y-1.5 shadow-sm">
+                              <div className="flex justify-between items-center">
+                                <span className="font-extrabold text-zinc-200">{b.number}</span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-emerald-400 font-bold">R$ {b.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                  <span className={`text-[7.5px] px-1.5 py-0.5 uppercase font-black rounded ${
+                                    b.status === 'Vendido' ? 'bg-emerald-950 text-emerald-400 border border-emerald-900/30' :
+                                    b.status === 'Aguardando Cliente' ? 'bg-amber-950 text-amber-500' : 'bg-neutral-800 text-zinc-400'
+                                  }`}>{b.status}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1.5 pt-1 border-t border-neutral-900 justify-end">
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    startEditBudget(b);
+                                    setSelectedClient(null);
+                                    setActiveTab('budgets');
+                                  }}
+                                  className="bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 text-amber-400 hover:text-amber-300 px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-tight flex items-center gap-1 cursor-pointer transition-colors"
+                                  title="Editar Orçamento e adicionar itens"
+                                >
+                                  <span>✏️ Editar</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    startEditBudget(b);
+                                    setSelectedClient(null);
+                                    setActiveTab('products');
+                                    setProductsSubTab('cubagem');
+                                    setProdCalcMode('toras');
+                                    triggerNotification(`Orçamento ${b.number} pronto para receber toras!`);
+                                  }}
+                                  className="bg-indigo-500/20 hover:bg-indigo-500/35 border border-indigo-500/50 text-indigo-300 hover:text-indigo-200 px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-tight flex items-center gap-1 cursor-pointer transition-colors"
+                                  title="Cubar e embutir toras neste orçamento"
+                                >
+                                  <span>🪵 + Toras</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setViewingBudget(b);
+                                    setSelectedClient(null);
+                                  }}
+                                  className="bg-neutral-800 hover:bg-neutral-750 text-zinc-300 px-2 py-1 rounded-lg text-[9px] font-bold uppercase tracking-tight cursor-pointer transition-colors"
+                                  title="Ver Orçamento"
+                                >
+                                  <span>👁️ Ver</span>
+                                </button>
                               </div>
                             </div>
                           ))
@@ -4978,250 +6519,496 @@ ${itemRows}
             >
               <div className="flex justify-between items-center bg-neutral-900 border border-neutral-800/60 p-3 rounded-2xl">
                 <div className="flex items-center gap-2">
-                  <ShoppingBag className="w-5 h-5 text-amber-500" />
+                  <TreePine className="w-5 h-5 text-amber-500" />
                   <h3 className="font-extrabold text-sm text-amber-500 font-sans tracking-wide">Tabela de Preços</h3>
                 </div>
                 <span className="text-[10px] text-zinc-400 font-mono bg-neutral-950 px-2 py-0.5 rounded border border-neutral-850">{products.length} madeiras ativas</span>
               </div>
 
-              {/* Products Sub-tab Selector */}
-              <div className="grid grid-cols-2 gap-1.5 p-1 bg-neutral-950 rounded-xl border border-neutral-850 shrink-0">
+              {/* Products Sub-tab Selector - 3 distinct sections separated to eliminate confusion */}
+              <div className="grid grid-cols-3 gap-1.5 p-1 bg-neutral-950 rounded-xl border border-neutral-850 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setProductsSubTab('lista')}
-                  className={`py-2 px-3 rounded-lg text-xs font-black transition-all cursor-pointer select-none text-center leading-tight ${
-                    productsSubTab === 'lista'
-                      ? 'bg-amber-600 text-neutral-950 shadow'
-                      : 'bg-neutral-900 text-zinc-400 hover:text-zinc-200 hover:bg-neutral-850'
+                  onClick={() => {
+                    setProductsSubTab('cubagem');
+                    setProdCalcMode('toras'); // Always show Toras (Huber) first
+                  }}
+                  className={`py-2.5 px-2 rounded-lg text-xs font-black transition-all cursor-pointer select-none text-center leading-tight flex items-center justify-center gap-1.5 ${
+                    productsSubTab === 'cubagem'
+                      ? 'bg-amber-500 text-neutral-950 shadow-md font-extrabold'
+                      : 'bg-neutral-900 text-zinc-300 hover:text-zinc-100 hover:bg-neutral-850'
                   }`}
                 >
-                  Lista e Tabela 🪵
+                  <Box className="w-3.5 h-3.5 stroke-[2.5]" />
+                  <span>📐 Cubagem</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setProductsSubTab('catalogo')}
+                  className={`py-2.5 px-2 rounded-lg text-xs font-black transition-all cursor-pointer select-none text-center leading-tight flex items-center justify-center gap-1.5 ${
+                    productsSubTab === 'catalogo'
+                      ? 'bg-amber-500 text-neutral-950 shadow-md font-extrabold'
+                      : 'bg-neutral-900 text-zinc-300 hover:text-zinc-100 hover:bg-neutral-850'
+                  }`}
+                >
+                  <Table className="w-3.5 h-3.5" />
+                  <span>📋 Catálogo</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setProductsSubTab('sob_medida')}
-                  className={`py-2 px-3 rounded-lg text-xs font-black transition-all cursor-pointer select-none text-center leading-tight ${
+                  className={`py-2.5 px-2 rounded-lg text-xs font-black transition-all cursor-pointer select-none text-center leading-tight flex items-center justify-center gap-1.5 ${
                     productsSubTab === 'sob_medida'
-                      ? 'bg-amber-600 text-neutral-950 shadow'
-                      : 'bg-neutral-900 text-zinc-400 hover:text-zinc-200 hover:bg-neutral-850'
+                      ? 'bg-amber-500 text-neutral-950 shadow-md font-extrabold'
+                      : 'bg-neutral-900 text-zinc-300 hover:text-zinc-100 hover:bg-neutral-850'
                   }`}
                 >
-                  Cadastrar Sob Medida 📐
+                  <Ruler className="w-3.5 h-3.5" />
+                  <span>➕ Cadastrar</span>
                 </button>
               </div>
 
-              {productsSubTab === 'lista' && (
+              {productsSubTab === 'cubagem' && (
                 <div className="space-y-3.5 animate-fade-in">
-                  {/* Dynamic Wood Cubic M3 Huber calculator panel decoration */}
-              <div className="bg-gradient-to-br from-indigo-950/40 to-neutral-950 p-4.5 rounded-2xl border border-neutral-800/80 flex flex-col gap-3.5 shadow-md">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs uppercase tracking-wider text-indigo-300 font-extrabold flex items-center gap-1.5 font-sans">
-                    <Calculator className="w-4.5 h-4.5 text-indigo-400" />
-                    Calculadora de M³ Rápida
-                  </span>
-                  <span className="text-[9px] bg-indigo-900 bg-opacity-65 text-indigo-200 px-2.5 py-0.5 rounded-lg border border-indigo-700/30 font-mono font-bold uppercase">Mód. Huber</span>
-                </div>
-                <p className="text-[11px] text-zinc-400 leading-relaxed font-sans font-medium">
-                  Toque nos botões de ajuste grosso ou digite para simular cubagem na hora:
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mt-1">
-                  <div>
-                    <label className="text-[10px] text-zinc-300 font-black uppercase tracking-wider block mb-1">Comprimento (m)</label>
-                    <div className="flex items-center gap-2">
-                      <button 
+                  {/* Active Linked Budget Banner if editing */}
+                  {editingBudgetId && (
+                    <div className="bg-gradient-to-r from-amber-950/70 via-neutral-900 to-neutral-950 border-2 border-amber-500/80 p-3.5 rounded-2xl shadow-xl flex items-center justify-between gap-3 animate-fade-in">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-xl bg-amber-500 text-neutral-950 flex items-center justify-center font-black shrink-0 shadow-md">
+                          <Receipt className="w-5 h-5" />
+                        </div>
+                        <div className="min-w-0">
+                          <span className="text-amber-400 font-extrabold text-xs uppercase tracking-wide block truncate">
+                            🎯 Destino Ativo: Orçamento de {bSelectedClient?.name || bNewClientName || 'Cliente'}
+                          </span>
+                          <span className="text-zinc-300 text-[11px] block mt-0.5">
+                            {bItems.length} materiais na cesta (réguas, tábuas, peças). Toras serão somadas ao valor final!
+                          </span>
+                        </div>
+                      </div>
+                      <button
                         type="button"
                         onClick={() => {
-                          const newL = String(Math.max(1, (parseFloat(calcLength) || 0) - 1));
-                          handleCubicCalcChange(calcDiameter, newL, calcProductPrice);
+                          setActiveTab('budgets');
                         }}
-                        className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-90 transition-all select-none cursor-pointer border border-neutral-700"
+                        className="bg-neutral-800 hover:bg-neutral-750 text-amber-300 border border-amber-500/40 px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer select-none shrink-0"
                       >
-                        -
-                      </button>
-                      <input 
-                        type="number" 
-                        value={calcLength} 
-                        onChange={(e) => handleCubicCalcChange(calcDiameter, e.target.value, calcProductPrice)}
-                        className="w-full bg-neutral-950 border border-neutral-850 rounded-xl py-3 text-center font-mono text-base text-indigo-300 outline-none font-bold focus:border-indigo-500"
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => {
-                          const newL = String((parseFloat(calcLength) || 0) + 1);
-                          handleCubicCalcChange(calcDiameter, newL, calcProductPrice);
-                        }}
-                        className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-90 transition-all select-none cursor-pointer border border-neutral-700"
-                      >
-                        +
+                        Ver Cesta
                       </button>
                     </div>
-                    {/* Quick presets */}
-                    <div className="flex gap-1.5 mt-2.5 overflow-x-auto pb-1.5">
-                      {['3', '4', '6', '8', '10', '12'].map(preset => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => handleCubicCalcChange(calcDiameter, preset, calcProductPrice)}
-                          className={`px-3 py-1.5 text-[11px] rounded-lg transition-all shrink-0 font-mono font-bold border ${calcLength === preset ? 'bg-indigo-600 border-indigo-500 text-white shadow-md' : 'bg-neutral-900 border-neutral-850 text-zinc-400 hover:text-zinc-300'}`}
-                        >
-                          {preset}m
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                  )}
 
-                  <div>
-                    <label className="text-[10px] text-zinc-300 font-black uppercase tracking-wider block mb-1">Diâmetro (cm)</label>
-                    <div className="flex items-center gap-2">
-                      <button 
-                        type="button"
-                        onClick={() => {
-                          const newD = String(Math.max(10, (parseFloat(calcDiameter) || 0) - 5));
-                          handleCubicCalcChange(newD, calcLength, calcProductPrice);
-                        }}
-                        className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-90 transition-all select-none cursor-pointer border border-neutral-700"
-                      >
-                        -
-                      </button>
-                      <input 
-                        type="number" 
-                        value={calcDiameter} 
-                        onChange={(e) => handleCubicCalcChange(e.target.value, calcLength, calcProductPrice)}
-                        className="w-full bg-neutral-950 border border-neutral-850 rounded-xl py-3 text-center font-mono text-base text-indigo-300 outline-none font-bold focus:border-indigo-500"
-                      />
-                      <button 
-                        type="button"
-                        onClick={() => {
-                          const newD = String((parseFloat(calcDiameter) || 0) + 5);
-                          handleCubicCalcChange(newD, calcLength, calcProductPrice);
-                        }}
-                        className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-90 transition-all select-none cursor-pointer border border-neutral-700"
-                      >
-                        +
-                      </button>
-                    </div>
-                    {/* Quick presets */}
-                    <div className="flex gap-1.5 mt-2.5 overflow-x-auto pb-1.5">
-                      {['15', '20', '30', '40', '50', '60'].map(preset => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => handleCubicCalcChange(preset, calcLength, calcProductPrice)}
-                          className={`px-3 py-1.5 text-[11px] rounded-lg transition-all shrink-0 font-mono font-bold border ${calcDiameter === preset ? 'bg-indigo-600 border-indigo-500 text-white shadow-md' : 'bg-neutral-900 border-neutral-850 text-zinc-400 hover:text-zinc-300'}`}
-                        >
-                          {preset}cm
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="bg-neutral-950/80 p-3.5 rounded-xl border border-neutral-800 flex flex-col gap-1.5 shadow-inner">
-                  <label className="text-[10px] text-zinc-400 font-extrabold uppercase tracking-wider block">Preço do Metro Cúbico (R$ / m³)</label>
-                  <div className="flex items-center gap-2">
-                    <span className="text-zinc-500 font-black text-xs font-mono">R$</span>
-                    <input 
-                      type="number" 
-                      value={calcProductPrice} 
-                      onChange={(e) => {
-                        const val = parseFloat(e.target.value) || 0;
-                        setCalcProductPrice(val);
-                      }}
-                      placeholder="Ex: 450"
-                      className="w-full bg-neutral-900 border border-neutral-800 rounded-lg py-2 px-3 text-left font-mono text-sm text-amber-500 outline-none font-bold focus:border-amber-500 transition-all"
-                    />
-                  </div>
-                  <span className="text-[9px] text-zinc-500 block font-medium">Toque em "Calcular" na lista de produtos abaixo para carregar o preço de outro produto.</span>
-                </div>
-
-                <div className="bg-neutral-950 p-4 rounded-xl flex justify-between items-center border border-neutral-850 mt-1 shadow-inner gap-2">
-                  <div className="text-left">
-                    <span className="text-[10px] text-zinc-500 uppercase block tracking-wider font-bold">Volume Resultante</span>
-                    <strong className="text-indigo-400 font-mono text-2xl font-black">{calcResult} m³</strong>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] text-zinc-500 block font-bold uppercase tracking-wider">Preço de Referência</span>
-                    <span className="text-amber-500 font-mono font-black text-[18px]">R$ {(calcResult * calcProductPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                  </div>
-                </div>
-
-                {/* Addition actions & History tracker */}
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={addToraToHistory}
-                    className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold py-3.5 px-4 rounded-xl text-[11px] uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 cursor-pointer overflow-hidden leading-tight select-none border border-indigo-500 shadow-md shadow-indigo-950/20"
-                  >
-                    ➕ Adicionar ao Histórico
-                  </button>
-                  {calcHistory.length > 0 && (
+                  {/* Selector for Calculator Mode - Huber Toras is FIRST as requested */}
+                  <div className="flex bg-neutral-950 p-1 rounded-xl border border-neutral-800 gap-1 shadow-md">
                     <button
                       type="button"
-                      onClick={clearCalcHistory}
-                      className="bg-neutral-900 border border-neutral-800 hover:bg-red-950/40 hover:text-red-400 hover:border-red-900/40 text-zinc-400 font-bold px-4 rounded-xl text-[11px] cursor-pointer select-none transition-all active:scale-[0.98]"
-                      title="Excluir Histórico de m³"
+                      onClick={() => setProdCalcMode('toras')}
+                      className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-black transition-all cursor-pointer select-none flex items-center justify-center gap-1.5 ${
+                        prodCalcMode === 'toras'
+                          ? 'bg-indigo-600 text-white shadow font-extrabold'
+                          : 'text-zinc-400 hover:text-zinc-200 font-bold'
+                      }`}
                     >
-                      🗑️ Limpar
+                      <Calculator className="w-3.5 h-3.5" />
+                      <span>🪵 Cubagem de Toras (Huber)</span>
                     </button>
-                  )}
-                </div>
+                    <button
+                      type="button"
+                      onClick={() => setProdCalcMode('pranchas')}
+                      className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-black transition-all cursor-pointer select-none flex items-center justify-center gap-1.5 ${
+                        prodCalcMode === 'pranchas'
+                          ? 'bg-amber-600 text-neutral-950 shadow font-extrabold'
+                          : 'text-zinc-400 hover:text-zinc-200 font-bold'
+                      }`}
+                    >
+                      <Box className="w-3.5 h-3.5" />
+                      <span>📐 Romaneio de Pranchas & Blocos</span>
+                    </button>
+                  </div>
 
-                {/* History list inside the card if containing items */}
-                {calcHistory.length > 0 && (() => {
-                  const totalM3 = parseFloat(calcHistory.reduce((sum, h) => sum + h.volume, 0).toFixed(3));
-                  const totalReaisStable = Math.round(calcHistory.reduce((sum, h) => sum + h.value, 0) * 100) / 100;
-                  return (
-                    <div className="bg-neutral-950/70 p-3.5 rounded-xl border border-neutral-800/60 font-sans mt-1">
-                      <div className="flex justify-between items-center pb-2 border-b border-indigo-800/20">
-                        <span className="text-[9.5px] text-indigo-300 uppercase font-black tracking-wider">Histórico de Cubagem ({calcHistory.length})</span>
-                        <div className="text-right flex flex-col leading-tight">
-                          <span className="text-xs font-mono text-emerald-400 font-black">Siga: R$ {totalReaisStable.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                          <span className="text-[10px] font-mono text-indigo-300 font-black">{totalM3.toFixed(3)} m³ total</span>
+                  {prodCalcMode === 'pranchas' ? (
+                    renderBlockCalculatorUI()
+                  ) : (
+                    /* Dynamic Wood Cubic M3 Huber calculator panel decoration */
+                    <div id="toras-calculator-export-card" className="bg-gradient-to-br from-indigo-950/40 via-neutral-950 to-neutral-950 p-4.5 sm:p-6 rounded-2xl border border-indigo-900/50 flex flex-col gap-5 shadow-2xl">
+                      <div className="flex justify-between items-center pb-3 border-b border-indigo-900/40">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2.5 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
+                            <Calculator className="w-6 h-6 stroke-[2.2]" />
+                          </div>
+                          <div>
+                            <span className="text-sm sm:text-base uppercase tracking-wider text-indigo-300 font-black font-sans block">
+                              Calculadora de Cubagem de Toras (Huber)
+                            </span>
+                            <span className="text-xs text-zinc-300 font-medium block mt-0.5">
+                              Cálculo de Volume Bruto de Madeira em Toras
+                            </span>
+                          </div>
+                        </div>
+                        <span className="text-xs bg-indigo-900/80 text-indigo-200 px-3 py-1 rounded-xl border border-indigo-600/50 font-mono font-black uppercase">
+                          Fórmula Huber
+                        </span>
+                      </div>
+
+                      {/* STEP 1: Medidas da Tora */}
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-indigo-500 text-white font-black text-xs flex items-center justify-center">1</span>
+                          <span className="text-xs sm:text-sm font-extrabold uppercase text-indigo-200 tracking-wide">
+                            Comprimento e Diâmetro da Tora
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-neutral-900/60 p-4 rounded-xl border border-neutral-800">
+                          {/* Comprimento */}
+                          <div>
+                            <label className="text-xs text-zinc-200 font-extrabold uppercase tracking-wider block mb-1.5">Comprimento (m)</label>
+                            <div className="flex items-center gap-2">
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  const newL = String(Math.max(1, (parseFloat(calcLength) || 0) - 1));
+                                  handleCubicCalcChange(calcDiameter, newL, calcProductPrice);
+                                }}
+                                className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
+                              >
+                                -
+                              </button>
+                              <input 
+                                type="number" 
+                                value={calcLength} 
+                                onChange={(e) => handleCubicCalcChange(calcDiameter, e.target.value, calcProductPrice)}
+                                className="w-full bg-neutral-950 border border-neutral-700 rounded-xl py-3 text-center font-mono text-lg text-indigo-300 outline-none font-extrabold focus:border-indigo-500"
+                              />
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  const newL = String((parseFloat(calcLength) || 0) + 1);
+                                  handleCubicCalcChange(calcDiameter, newL, calcProductPrice);
+                                }}
+                                className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
+                              >
+                                +
+                              </button>
+                            </div>
+                            {/* Quick presets */}
+                            <div className="flex gap-1.5 mt-2.5 overflow-x-auto pb-1 scrollbar-none">
+                              {['3', '4', '6', '8', '10', '12'].map(preset => (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  onClick={() => handleCubicCalcChange(calcDiameter, preset, calcProductPrice)}
+                                  className={`px-3 py-1 text-xs rounded-lg transition-all shrink-0 font-mono font-bold border ${calcLength === preset ? 'bg-indigo-600 border-indigo-400 text-white shadow-sm' : 'bg-neutral-900 border-neutral-800 text-zinc-300 hover:text-white'}`}
+                                >
+                                  {preset}m
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Diâmetro */}
+                          <div>
+                            <label className="text-xs text-zinc-200 font-extrabold uppercase tracking-wider block mb-1.5">Diâmetro no Meio (cm)</label>
+                            <div className="flex items-center gap-2">
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  const newD = String(Math.max(10, (parseFloat(calcDiameter) || 0) - 5));
+                                  handleCubicCalcChange(newD, calcLength, calcProductPrice);
+                                }}
+                                className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
+                              >
+                                -
+                              </button>
+                              <input 
+                                type="number" 
+                                value={calcDiameter} 
+                                onChange={(e) => handleCubicCalcChange(e.target.value, calcLength, calcProductPrice)}
+                                className="w-full bg-neutral-950 border border-neutral-700 rounded-xl py-3 text-center font-mono text-lg text-indigo-300 outline-none font-extrabold focus:border-indigo-500"
+                              />
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  const newD = String((parseFloat(calcDiameter) || 0) + 5);
+                                  handleCubicCalcChange(newD, calcLength, calcProductPrice);
+                                }}
+                                className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
+                              >
+                                +
+                              </button>
+                            </div>
+                            {/* Quick presets */}
+                            <div className="flex gap-1.5 mt-2.5 overflow-x-auto pb-1 scrollbar-none">
+                              {['15', '20', '30', '40', '50', '60'].map(preset => (
+                                <button
+                                  key={preset}
+                                  type="button"
+                                  onClick={() => handleCubicCalcChange(preset, calcLength, calcProductPrice)}
+                                  className={`px-3 py-1 text-xs rounded-lg transition-all shrink-0 font-mono font-bold border ${calcDiameter === preset ? 'bg-indigo-600 border-indigo-400 text-white shadow-sm' : 'bg-neutral-900 border-neutral-800 text-zinc-300 hover:text-white'}`}
+                                >
+                                  {preset}cm
+                                </button>
+                              ))}
+                            </div>
+                          </div>
                         </div>
                       </div>
 
-                      <div className="max-h-[140px] overflow-y-auto space-y-1.5 pr-0.5 mt-2.5 scrollbar-thin">
-                        {calcHistory.map((h, i) => (
-                          <div key={h.id} className="flex justify-between items-center text-[10.5px] bg-neutral-900/40 hover:bg-neutral-900 p-2 rounded-lg border border-neutral-800/40 font-mono">
-                            <div className="flex items-center gap-1">
-                              <span className="text-zinc-500 text-[9px] font-sans">#{calcHistory.length - i}</span>
-                              <span className="text-zinc-300 font-bold">Ø{h.diameter}×{h.length}m</span>
-                              <span className="text-indigo-300">({h.volume.toFixed(3)}m³)</span>
+                      {/* STEP 2: Preço e Resultado */}
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-indigo-500 text-white font-black text-xs flex items-center justify-center">2</span>
+                          <span className="text-xs sm:text-sm font-extrabold uppercase text-indigo-200 tracking-wide">
+                            Preço por m³ e Cubagem Resultante
+                          </span>
+                        </div>
+
+                        <div className="bg-neutral-950 p-4 sm:p-5 rounded-2xl border border-neutral-800 flex flex-col gap-4 shadow-inner">
+                          <div className="flex flex-col gap-1.5">
+                            <label className="text-xs text-zinc-300 font-bold uppercase tracking-wide block">Preço do Metro Cúbico (R$ / m³)</label>
+                            <div className="flex items-center gap-2">
+                              <span className="text-zinc-400 font-black text-sm font-mono">R$</span>
+                              <input 
+                                type="number" 
+                                value={calcProductPrice} 
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  setCalcProductPrice(val);
+                                }}
+                                placeholder="Ex: 450"
+                                className="w-full bg-neutral-900 border border-neutral-700 rounded-xl py-3 px-3.5 text-left font-mono text-base text-amber-400 outline-none font-extrabold focus:border-indigo-500 transition-all"
+                              />
                             </div>
-                            <div className="flex items-center gap-1.5">
-                              <span className="text-amber-500 font-extrabold">R$ {h.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                          </div>
+
+                          {/* PAINEL DE DESTAQUE MÁXIMO: METRAGEM TOTAL DE TORAS E VALOR ESTIMADO */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                            {/* Metragem Total com Extremo Destaque */}
+                            <div className="bg-gradient-to-b from-indigo-950/80 via-neutral-900 to-neutral-950 border-2 border-indigo-500/90 p-4 sm:p-5 rounded-2xl shadow-2xl flex flex-col justify-between">
+                              <div>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs sm:text-sm text-indigo-300 uppercase font-black tracking-wider flex items-center gap-1.5">
+                                    <span>🪵</span> METRAGEM TOTAL DA TORA
+                                  </span>
+                                  <span className="text-[11px] bg-indigo-500/20 text-indigo-300 font-mono font-bold px-2 py-0.5 rounded-full border border-indigo-500/30">
+                                    HUBER
+                                  </span>
+                                </div>
+                                <span className="text-xs text-zinc-300 font-medium block mt-1">
+                                  Volume cilíndrico médio da tora
+                                </span>
+                              </div>
+                              <div className="mt-3">
+                                <strong className="text-indigo-300 font-mono text-3xl sm:text-4xl lg:text-5xl font-black block tracking-tight drop-shadow-md">
+                                  {calcResult} m³
+                                </strong>
+                                <span className="text-xs text-indigo-200/90 font-mono font-bold block mt-1.5">
+                                  Ø {calcDiameter}cm (diâm. meio) × {calcLength}m (comp)
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Valor Total com Extremo Destaque */}
+                            <div className="bg-gradient-to-b from-emerald-950/80 via-neutral-900 to-neutral-950 border-2 border-emerald-500/90 p-4 sm:p-5 rounded-2xl shadow-2xl flex flex-col justify-between">
+                              <div>
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-xs sm:text-sm text-emerald-300 uppercase font-black tracking-wider flex items-center gap-1.5">
+                                    <span>💰</span> VALOR TOTAL ESTIMADO
+                                  </span>
+                                  <span className="text-[11px] bg-emerald-500/20 text-emerald-300 font-mono font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
+                                    R$ / M³
+                                  </span>
+                                </div>
+                                <span className="text-xs text-zinc-300 font-medium block mt-1">
+                                  Preço base: R$ {calcProductPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / m³
+                                </span>
+                              </div>
+                              <div className="mt-3">
+                                <span className="text-emerald-400 font-mono font-black text-2xl sm:text-3xl lg:text-4xl block tracking-tight drop-shadow-md">
+                                  R$ {(calcResult * calcProductPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                </span>
+                                <span className="text-xs text-emerald-300/90 font-mono font-bold block mt-1.5">
+                                  Cálculo exato por volume de tora roliça
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Botões Individuais de Exportação da Cubagem de Toras (PDF e PNG) */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={handleExportTorasPDF}
+                          className="bg-neutral-900 hover:bg-neutral-850 text-indigo-300 border-2 border-indigo-600/60 hover:border-indigo-500 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                          title="Exportar Cubagem de Toras em PDF com metragem e valor total destacados"
+                        >
+                          <FileDown className="w-4 h-4 text-indigo-400 stroke-[2.5]" />
+                          <span>📄 Exportar Cubagem Toras (PDF)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleExportTorasPNG}
+                          className="bg-neutral-900 hover:bg-neutral-850 text-emerald-300 border-2 border-emerald-600/60 hover:border-emerald-500 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-lg"
+                          title="Exportar Cubagem de Toras em Imagem PNG de alta definição"
+                        >
+                          <Share2 className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
+                          <span>📸 Exportar Cubagem Toras (PNG)</span>
+                        </button>
+                      </div>
+
+                      {/* BOTÃO EM DESTAQUE: EMBUTIR ESTA TORA NO ORÇAMENTO DO CLIENTE */}
+                      <div className="bg-gradient-to-r from-amber-950/70 via-neutral-900 to-neutral-950 border-2 border-amber-500 p-4 rounded-2xl shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 w-full sm:w-auto">
+                          <div className="w-11 h-11 rounded-xl bg-amber-500 text-neutral-950 flex items-center justify-center font-black shrink-0 shadow-md">
+                            <Receipt className="w-6 h-6 stroke-[2.5]" />
+                          </div>
+                          <div>
+                            <span className="text-xs sm:text-sm font-black text-amber-400 block uppercase tracking-wide">
+                              📥 Embutir Tora no Orçamento do Cliente
+                            </span>
+                            <span className="text-[11px] text-zinc-300 block mt-0.5">
+                              {editingBudgetId 
+                                ? `Adicionar direto ao orçamento ativo de ${bSelectedClient?.name || bNewClientName || 'Cliente'}` 
+                                : 'Adicione a um orçamento existente ou crie um novo orçamento'}
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openAttachWoodModal('current_tora')}
+                          className="w-full sm:w-auto bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black py-3.5 px-5 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-xl shadow-amber-950/50 select-none shrink-0"
+                        >
+                          <span>Adicionar ao Orçamento</span>
+                          <ChevronRight className="w-4 h-4 stroke-[3]" />
+                        </button>
+                      </div>
+
+                      {/* Addition actions */}
+                      <div className="flex flex-col sm:flex-row gap-3">
+                        <button
+                          type="button"
+                          onClick={addToraToHistory}
+                          className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 px-5 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer border border-indigo-500 shadow-lg shadow-indigo-950/30"
+                        >
+                          ➕ Adicionar Tora ao Histórico
+                        </button>
+                        {calcHistory.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={clearCalcHistory}
+                            className="bg-neutral-900 border border-neutral-700 hover:bg-red-950/50 hover:text-red-300 text-zinc-300 font-extrabold px-5 py-4 rounded-xl text-xs sm:text-sm cursor-pointer transition-all active:scale-[0.98]"
+                            title="Excluir Histórico de m³"
+                          >
+                            🗑️ Limpar Histórico
+                          </button>
+                        )}
+                      </div>
+
+                      {/* History list (NO inner scroll trap!) */}
+                      {calcHistory.length > 0 && (() => {
+                        const totalM3 = parseFloat(calcHistory.reduce((sum, h) => sum + h.volume, 0).toFixed(3));
+                        const totalReaisStable = Math.round(calcHistory.reduce((sum, h) => sum + h.value, 0) * 100) / 100;
+                        const visibleToraHistory = showAllToraHistory ? calcHistory : calcHistory.slice(0, 5);
+
+                        return (
+                          <div className="bg-neutral-950 p-4 sm:p-5 rounded-2xl border border-indigo-900/50 font-sans space-y-4 shadow-xl">
+                            <div className="flex justify-between items-center pb-3 border-b border-indigo-900/40">
+                              <span className="text-xs sm:text-sm text-indigo-300 uppercase font-black tracking-wider">Histórico de Toras ({calcHistory.length})</span>
+                              <div className="text-right flex flex-col leading-tight">
+                                <span className="text-sm font-mono text-emerald-400 font-black">Total: R$ {totalReaisStable.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                <span className="text-xs font-mono text-indigo-300 font-bold mt-0.5">{totalM3.toFixed(3)} m³ total</span>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2.5">
+                              {visibleToraHistory.map((h, i) => (
+                                <div key={h.id} className="flex justify-between items-center text-xs sm:text-sm bg-neutral-900 p-3.5 rounded-xl border border-neutral-800 font-mono shadow-sm hover:border-indigo-900/50 transition-colors">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-zinc-500 text-xs font-sans font-bold">#{calcHistory.length - i}</span>
+                                    <span className="text-zinc-100 font-bold">Ø{h.diameter}cm × {h.length}m</span>
+                                    <span className="text-indigo-300 font-bold bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">({h.volume.toFixed(3)} m³)</span>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                    <span className="text-amber-400 font-extrabold text-sm sm:text-base">R$ {h.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setCalcHistory(prev => prev.filter(x => x.id !== h.id));
+                                        onAddLog(`Tora #${calcHistory.length - i} removida do histórico.`);
+                                        triggerNotification("Item removido!");
+                                      }}
+                                      className="bg-neutral-800 hover:bg-rose-950 hover:text-rose-400 text-zinc-400 px-2.5 py-1.5 rounded-lg border border-neutral-700 transition-colors cursor-pointer text-xs font-bold"
+                                      title="Remover item"
+                                    >
+                                      ✕ Excluir
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {calcHistory.length > 5 && (
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setCalcHistory(prev => prev.filter(x => x.id !== h.id));
-                                  onAddLog(`Tora #${calcHistory.length - i} removida do histórico.`);
-                                  triggerNotification("Removido!");
-                                }}
-                                className="text-zinc-500 hover:text-red-400 p-0.5 transition-colors cursor-pointer text-xs font-bold leading-none"
-                                title="Remover item"
+                                onClick={() => setShowAllToraHistory(!showAllToraHistory)}
+                                className="w-full py-2.5 text-xs text-indigo-300 font-extrabold bg-neutral-900 hover:bg-neutral-850 border border-indigo-900/40 rounded-xl transition-colors cursor-pointer"
                               >
-                                ×
+                                {showAllToraHistory 
+                                  ? '▲ Mostrar menos toras' 
+                                  : `📋 Expandir ver todas as ${calcHistory.length} toras`}
+                              </button>
+                            )}
+
+                            {/* Botão de Enviar Todas as Toras ao Orçamento do Cliente */}
+                            <div className="pt-2 border-t border-indigo-900/40">
+                              <button
+                                type="button"
+                                onClick={() => openAttachWoodModal('history_toras')}
+                                className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-neutral-950 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-xl active:scale-[0.98] transition-all select-none"
+                              >
+                                <Receipt className="w-4 h-4 stroke-[2.5]" />
+                                <span>📥 Injetar Todas as {calcHistory.length} Toras no Orçamento do Cliente</span>
                               </button>
                             </div>
                           </div>
-                        ))}
-                      </div>
+                        );
+                      })()}
                     </div>
-                  );
-                })()}
-              </div>
+                  )}
+                </div>
+              )}
 
-              {/* Direct searching */}
-              <div className="relative">
-                <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-4" />
-                <input 
-                  type="text" 
-                  placeholder="Pesquisar madeira ou código SKU..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-11 pr-4 py-4 text-xs sm:text-sm outline-none text-zinc-100 placeholder-zinc-500 focus:border-amber-600 font-medium"
-                />
-              </div>
+              {/* TELA INDEPENDENTE: CATÁLOGO DE PREÇOS E MADEIRAS (Separado da Cubagem para não poluir nem confundir rolagem) */}
+              {productsSubTab === 'catalogo' && (
+                <div className="space-y-4 animate-fade-in pb-8">
+                  <div className="bg-neutral-900/70 p-4 rounded-2xl border border-neutral-800 flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                    <div>
+                      <h4 className="text-xs sm:text-sm font-black text-amber-500 uppercase tracking-wide flex items-center gap-2">
+                        <Table className="w-4 h-4 text-amber-500 stroke-[2.5]" />
+                        Catálogo de Espécies & Tabela de Preços
+                      </h4>
+                      <p className="text-xs text-zinc-300 font-medium mt-0.5">
+                        Lista completa de madeiras cadastradas. Clique em "Calcular" para carregar direto nas calculadoras.
+                      </p>
+                    </div>
+                    <span className="text-xs font-mono font-bold text-amber-400 bg-neutral-950 px-3 py-1 rounded-lg border border-neutral-800 self-start sm:self-auto">
+                      {filteredProducts.length} itens encontrados
+                    </span>
+                  </div>
+
+                  {/* Direct searching */}
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-4" />
+                    <input 
+                      type="text" 
+                      placeholder="Pesquisar madeira por nome ou código SKU..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-11 pr-4 py-3.5 text-xs sm:text-sm outline-none text-zinc-100 placeholder-zinc-500 focus:border-amber-600 font-medium"
+                    />
+                  </div>
 
               {/* Grid-style table items */}
               <div className="space-y-2.5 mt-0.5">
@@ -5287,19 +7074,19 @@ ${itemRows}
             <div className="space-y-4 animate-fade-in pb-8">
               <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 space-y-3">
                 <h4 className="text-xs uppercase tracking-wider text-amber-500 font-black flex items-center gap-1.5">
-                  📐 Cadastrar Nova Medida de Madeira
+                  📐 Cadastrar novo item ou serviço
                 </h4>
                 <p className="text-xs text-zinc-400 leading-relaxed font-medium">
-                  Cadastre peças com dimensões sob medida (como <strong>14x16</strong>, 15x20) e comprimentos personalizados. O material será registrado no banco local e ficará disponível para inserção nos orçamentos!
+                  Cadastre novos produtos, serviços (como <strong>Corte/Desdobro de Toras do Cliente</strong>, serragem por m³ ou hora) e peças sob medida (como <strong>14x16</strong>). Tudo fica salvo e disponível para incluir no mesmo orçamento com seus materiais!
                 </p>
               </div>
 
               <div className="bg-neutral-900/40 p-4 rounded-2xl border border-neutral-800/80 space-y-3.5">
                 <div>
-                  <label className="text-[10px] text-zinc-300 font-bold uppercase block mb-1">Nome do Produto</label>
+                  <label className="text-[10px] text-zinc-300 font-bold uppercase block mb-1">Nome do Produto ou Serviço</label>
                   <input
                     type="text"
-                    placeholder="Ex: Pilar de Eucalipto 14x16 Tratado"
+                    placeholder="Ex: Corte e Desdobro de Toras do Cliente (m³) ou Pilar 14x16"
                     value={newMeasureName}
                     onChange={(e) => {
                       setNewMeasureName(e.target.value);
@@ -5333,10 +7120,18 @@ ${itemRows}
                       onChange={(e) => setNewMeasureUnit(e.target.value as UnitType)}
                       className="w-full h-11 bg-neutral-950 border border-neutral-850 rounded-lg px-2 text-xs text-zinc-350 font-bold focus:border-amber-500 outline-none"
                     >
-                      <option value="M3">M3 (Metro Cúbico Huber/Tora)</option>
+                      <option value="M3">M3 (Metro Cúbico Huber/Tora Roliça)</option>
+                      <option value="M3_BLOCO">M3 BLOCO (Metro Cúbico de Prancha/Bloco - Espessura * Largura * Comp / 10.000)</option>
                       <option value="TABUA">TÁBUA (Venda cm Largura * m linear)</option>
                       <option value="PRANCHA">PRANCHA (Venda cm Largura * m linear)</option>
                       <option value="M">M (Metro Linear Simples)</option>
+                      <option value="HORA">HORA (Horas de Máquina / Serviço por Hora - Serra Circular, etc.)</option>
+                      <option value="M2">M2 (Metro Quadrado - Forro, Deck, Assoalho, Lixamento)</option>
+                      <option value="MIL">MIL (Milheiro - 1.000 Unidades de Ripas, Sarrafos ou Pallets)</option>
+                      <option value="ST">ST (Metro Estéreo - Lenha, Refilo e Casca Empilhada)</option>
+                      <option value="KG">KG (Quilograma - Biomassa, Resina, Carvão)</option>
+                      <option value="TON">TON (Tonelada - Lenha, Cavaco, Madeira Bruta Industrial)</option>
+                      <option value="DIARIA">DIÁRIA (Mão de Obra, Operador de Serra, Empreitada)</option>
                       <option value="UN">UN (Unidade Fixa)</option>
                     </select>
                   </div>
@@ -5345,7 +7140,7 @@ ${itemRows}
                   <div>
                     <label className="text-[10px] text-zinc-350 font-bold uppercase block mb-1">
                       {newMeasureUnit === 'M3' ? 'Diâmetro (cm)' : 'Espessura (cm)'}
-                      {newMeasureUnit === 'UN' && ' (Opcional)'}
+                      {(newMeasureUnit === 'UN' || newMeasureUnit === 'HORA' || newMeasureUnit === 'M2' || newMeasureUnit === 'KG' || newMeasureUnit === 'TON' || newMeasureUnit === 'DIARIA' || newMeasureUnit === 'ST') && ' (Opcional)'}
                     </label>
                     <input
                       type="number"
@@ -5358,13 +7153,13 @@ ${itemRows}
                   <div>
                     <label className="text-[10px] text-zinc-350 font-bold uppercase block mb-1">
                       Largura (cm)
-                      {newMeasureUnit === 'M3' ? ' (N/A)' : newMeasureUnit === 'M' ? ' (N/A)' : newMeasureUnit === 'UN' ? ' (Opcional)' : ''}
+                      {newMeasureUnit === 'M3' || newMeasureUnit === 'M' || newMeasureUnit === 'HORA' || newMeasureUnit === 'KG' || newMeasureUnit === 'TON' || newMeasureUnit === 'DIARIA' || newMeasureUnit === 'ST' ? ' (N/A)' : newMeasureUnit === 'UN' || newMeasureUnit === 'M2' || newMeasureUnit === 'MIL' ? ' (Opcional)' : ''}
                     </label>
                     <input
                       type="number"
                       value={newMeasureWidth}
                       onChange={(e) => setNewMeasureWidth(e.target.value)}
-                      disabled={newMeasureUnit === 'M3' || newMeasureUnit === 'M'}
+                      disabled={newMeasureUnit === 'M3' || newMeasureUnit === 'M' || newMeasureUnit === 'HORA' || newMeasureUnit === 'KG' || newMeasureUnit === 'TON' || newMeasureUnit === 'DIARIA' || newMeasureUnit === 'ST'}
                       className="w-full bg-neutral-950 border border-neutral-850 rounded-lg py-2.5 px-3 font-mono text-xs sm:text-sm text-zinc-200 font-bold focus:border-amber-500 outline-none disabled:opacity-40"
                     />
                   </div>
@@ -5372,7 +7167,7 @@ ${itemRows}
                   <div>
                     <label className="text-[10px] text-zinc-350 font-bold uppercase block mb-1">
                       Comp. (m)
-                      {newMeasureUnit === 'UN' && ' (Opcional)'}
+                      {(newMeasureUnit === 'UN' || newMeasureUnit === 'HORA' || newMeasureUnit === 'M2' || newMeasureUnit === 'KG' || newMeasureUnit === 'TON' || newMeasureUnit === 'DIARIA' || newMeasureUnit === 'ST' || newMeasureUnit === 'MIL') && ' (Opcional)'}
                     </label>
                     <input
                       type="number"
@@ -5387,13 +7182,27 @@ ${itemRows}
 
                 <div>
                   <label className="text-[10px] text-zinc-350 font-bold uppercase block mb-1">
-                    {newMeasureUnit === 'M3' 
+                    {newMeasureUnit === 'M3' || newMeasureUnit === 'M3_BLOCO'
                       ? 'Preço por Metro Cúbico (R$ / m³)' 
                       : newMeasureUnit === 'TABUA' || newMeasureUnit === 'PRANCHA' 
                         ? 'Preço por cm de Largura e metro linear (R$)' 
                         : newMeasureUnit === 'M'
                           ? 'Preço por Metro Linear (R$ / m)'
-                          : 'Preço por Unidade Fixo (R$ / UN)'}
+                          : newMeasureUnit === 'HORA'
+                            ? 'Preço por Hora de Máquina / Serviço (R$ / hora)'
+                            : newMeasureUnit === 'M2'
+                              ? 'Preço por Metro Quadrado (R$ / m²)'
+                              : newMeasureUnit === 'MIL'
+                                ? 'Preço por Milheiro (R$ / 1.000 pçs)'
+                                : newMeasureUnit === 'ST'
+                                  ? 'Preço por Metro Estéreo (R$ / st)'
+                                  : newMeasureUnit === 'KG'
+                                    ? 'Preço por Quilograma (R$ / kg)'
+                                    : newMeasureUnit === 'TON'
+                                      ? 'Preço por Tonelada (R$ / ton)'
+                                      : newMeasureUnit === 'DIARIA'
+                                        ? 'Preço por Diária (R$ / diária)'
+                                        : 'Preço por Unidade Fixo (R$ / UN)'}
                   </label>
                   <div className="flex items-center gap-2">
                     <span className="text-zinc-500 font-black text-xs font-mono">R$</span>
@@ -5421,6 +7230,11 @@ ${itemRows}
                     singleVol = parseCubicMeters(th, len);
                     singlePrice = singleVol * priceVal;
                     formulaDesc = `Volume Huber (Ø${th}cm x ${len}m) = ${singleVol.toFixed(4)} m³. Preço: ${singleVol.toFixed(4)} * R$ ${priceVal} = R$ ${singlePrice.toFixed(2)}`;
+                  } else if (newMeasureUnit === 'M3_BLOCO') {
+                    // Rectangular block volume formula (Th * Wd * Len / 10000)
+                    singleVol = (th * wd * len) / 10000;
+                    singlePrice = singleVol * priceVal;
+                    formulaDesc = `Volume Bloco Prático (${th}cm x ${wd}cm x ${len}m) = ${singleVol.toFixed(4)} m³. Preço por m³: ${singleVol.toFixed(4)} * R$ ${priceVal} = R$ ${singlePrice.toFixed(2)}`;
                   } else if (newMeasureUnit === 'TABUA' || newMeasureUnit === 'PRANCHA') {
                     // Rectangular timber volume
                     singleVol = (th * wd * len) / 10000;
@@ -5432,6 +7246,27 @@ ${itemRows}
                     // Price: length * price_per_meter
                     singlePrice = len * priceVal;
                     formulaDesc = `Comprimento ${len}m * Preço R$ ${priceVal} = R$ ${singlePrice.toFixed(2)}`;
+                  } else if (newMeasureUnit === 'HORA') {
+                    singlePrice = priceVal;
+                    formulaDesc = `Taxa Horária: R$ ${priceVal.toFixed(2)}/h (Será multiplicada pelas horas de máquina inseridas no orçamento)`;
+                  } else if (newMeasureUnit === 'M2') {
+                    singlePrice = priceVal;
+                    formulaDesc = `Valor por Metro Quadrado = R$ ${priceVal.toFixed(2)}/m² (Será multiplicado pelos m² do orçamento)`;
+                  } else if (newMeasureUnit === 'MIL') {
+                    singlePrice = priceVal / 1000;
+                    formulaDesc = `Milheiro: R$ ${priceVal.toFixed(2)} / 1.000 pçs (Cada peça individual custa R$ ${singlePrice.toFixed(3)})`;
+                  } else if (newMeasureUnit === 'ST') {
+                    singlePrice = priceVal;
+                    formulaDesc = `Metro Estéreo: R$ ${priceVal.toFixed(2)} / st`;
+                  } else if (newMeasureUnit === 'KG') {
+                    singlePrice = priceVal;
+                    formulaDesc = `Valor por Quilograma = R$ ${priceVal.toFixed(2)}/kg`;
+                  } else if (newMeasureUnit === 'TON') {
+                    singlePrice = priceVal;
+                    formulaDesc = `Valor por Tonelada = R$ ${priceVal.toFixed(2)}/ton`;
+                  } else if (newMeasureUnit === 'DIARIA') {
+                    singlePrice = priceVal;
+                    formulaDesc = `Valor da Diária = R$ ${priceVal.toFixed(2)}/diária`;
                   } else if (newMeasureUnit === 'UN') {
                     singleVol = (th * wd * len) / 10000;
                     // Fixed unit price!
@@ -5451,7 +7286,7 @@ ${itemRows}
                           <span className="text-xs font-mono text-indigo-400 font-black">{singleVol > 0 ? `${singleVol.toFixed(4)} m³` : 'N/A'}</span>
                         </div>
                         <div className="text-right">
-                          <span className="text-[9px] text-zinc-500 uppercase block font-bold">Preço Unitário Estimado</span>
+                          <span className="text-[9px] text-zinc-500 uppercase block font-bold">Preço Base / Taxa</span>
                           <span className="text-xs font-mono text-emerald-400 font-black">R$ {singlePrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                         </div>
                       </div>
@@ -5472,16 +7307,44 @@ ${itemRows}
                     const priceVal = parseFloat(newMeasurePrice) || 0;
 
                     // Specific code defaults based on unit
-                    const defaultPrefix = newMeasureUnit === 'M3' ? 'TOR' : newMeasureUnit === 'TABUA' ? 'TAB' : newMeasureUnit === 'PRANCHA' ? 'PRA' : newMeasureUnit === 'M' ? 'MET' : 'UNI';
+                    const defaultPrefix = newMeasureUnit === 'M3' ? 'TOR'
+                      : newMeasureUnit === 'M3_BLOCO' ? 'BLO'
+                      : newMeasureUnit === 'TABUA' ? 'TAB' 
+                      : newMeasureUnit === 'PRANCHA' ? 'PRA' 
+                      : newMeasureUnit === 'M' ? 'MET' 
+                      : newMeasureUnit === 'HORA' ? 'MAQ'
+                      : newMeasureUnit === 'M2' ? 'SQM'
+                      : newMeasureUnit === 'MIL' ? 'MIL'
+                      : newMeasureUnit === 'ST' ? 'EST'
+                      : newMeasureUnit === 'KG' ? 'KGS'
+                      : newMeasureUnit === 'TON' ? 'TON'
+                      : newMeasureUnit === 'DIARIA' ? 'DIA'
+                      : 'UNI';
                     const finalCode = newMeasureCode || `${defaultPrefix}-${th || 10}${wd ? `X${wd}` : ''}-${Math.floor(100+Math.random()*900)}`;
 
                     let desc = '';
                     if (newMeasureUnit === 'M3') {
                       desc = `Tora sob medida: Ø${th}cm, comprimento ${len}m.`;
+                    } else if (newMeasureUnit === 'M3_BLOCO') {
+                      desc = `Desdobro/Serragem por m³ de bloco retangular: ${th}x${wd}cm x ${len}m.`;
                     } else if (newMeasureUnit === 'TABUA' || newMeasureUnit === 'PRANCHA') {
                       desc = `Serrada sob medida: ${th}x${wd}cm, comprimento ${len}m.`;
                     } else if (newMeasureUnit === 'M') {
                       desc = `Metro linear simples: ${th > 0 ? `${th}x` : ''}${wd > 0 ? `${wd}cm, ` : ''}comprimento ${len}m.`;
+                    } else if (newMeasureUnit === 'HORA') {
+                      desc = `Serviço / Horas de máquina cobradas a R$ ${priceVal.toFixed(2)}/hora.`;
+                    } else if (newMeasureUnit === 'M2') {
+                      desc = `Material ou serviço cobrado por metro quadrado (R$ ${priceVal.toFixed(2)}/m²).`;
+                    } else if (newMeasureUnit === 'MIL') {
+                      desc = `Peças cobradas por milheiro (R$ ${priceVal.toFixed(2)} / 1.000 pçs).`;
+                    } else if (newMeasureUnit === 'ST') {
+                      desc = `Madeira empilhada cobrada por metro estéreo (R$ ${priceVal.toFixed(2)}/st).`;
+                    } else if (newMeasureUnit === 'KG') {
+                      desc = `Material pesado cobrado por quilograma (R$ ${priceVal.toFixed(2)}/kg).`;
+                    } else if (newMeasureUnit === 'TON') {
+                      desc = `Material industrial pesado cobrado por tonelada (R$ ${priceVal.toFixed(2)}/ton).`;
+                    } else if (newMeasureUnit === 'DIARIA') {
+                      desc = `Serviço de mão de obra cobrado por diária (R$ ${priceVal.toFixed(2)}/diária).`;
                     } else if (newMeasureUnit === 'UN') {
                       desc = `Peça unitária com preço fixo${th > 0 || wd > 0 ? ` (${th > 0 ? `${th}x` : ''}${wd > 0 ? `${wd}` : ''}cm)` : ''}${len > 0 ? ` de ${len}m` : ''}.`;
                     }
@@ -7073,32 +8936,43 @@ ${itemRows}
             >
               <div className="flex justify-between items-center bg-neutral-900 border border-neutral-800/60 p-3 rounded-2xl">
                 <div className="flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-emerald-400" />
+                  <Receipt className="w-5 h-5 text-emerald-400" />
                   <h3 className="font-extrabold text-sm text-emerald-400 font-sans tracking-wide">Orçamentos</h3>
                 </div>
                 <button 
                   onClick={startNewBudget}
                   className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-neutral-950 px-4 py-2 rounded-xl flex items-center gap-1.5 font-bold text-xs cursor-pointer shadow-md select-none"
                 >
-                  <Plus className="w-4 h-4 stroke-[2.5]" /> Gerar Novo
+                  <PlusCircle className="w-4 h-4 stroke-[2.5]" /> Gerar Novo
                 </button>
               </div>
 
               {/* Status scroll filter buttons */}
               <div className="flex gap-2 overflow-x-auto pb-1.5 text-xs font-mono scrollbar-none">
-                {['Todos', 'Rascunho', 'Aguardando', 'Confirmado', 'Vendido'].map((st) => (
-                  <button 
-                    key={st}
-                    onClick={() => setBudgetFilter(st)}
-                    className={`font-bold px-3 py-2 rounded-xl border cursor-pointer shrink-0 text-[11px] uppercase tracking-wide transition-colors ${
-                      budgetFilter === st 
-                        ? 'bg-amber-600 text-neutral-950 border-amber-500 font-extrabold shadow-sm' 
-                        : 'bg-neutral-950 hover:bg-neutral-900 text-zinc-400 border-neutral-850'
-                    }`}
-                  >
-                    {st === 'Aguardando' ? 'Aguardando' : st}
-                  </button>
-                ))}
+                {[
+                  { id: 'Todos', label: 'Todos', icon: Layers },
+                  { id: 'Rascunho', label: 'Rascunho', icon: Edit3 },
+                  { id: 'Aguardando', label: 'Aguardando', icon: Clock },
+                  { id: 'Confirmado', label: 'Confirmado', icon: CheckCheck },
+                  { id: 'Vendido', label: 'Vendido', icon: BadgeCheck }
+                ].map((st) => {
+                  const StIcon = st.icon;
+                  const isSel = budgetFilter === st.id;
+                  return (
+                    <button 
+                      key={st.id}
+                      onClick={() => setBudgetFilter(st.id)}
+                      className={`font-bold px-3 py-2 rounded-xl border cursor-pointer shrink-0 text-[11px] uppercase tracking-wide transition-all flex items-center gap-1.5 ${
+                        isSel 
+                          ? 'bg-amber-600 text-neutral-950 border-amber-500 font-extrabold shadow-sm' 
+                          : 'bg-neutral-950 hover:bg-neutral-900 text-zinc-400 border-neutral-850'
+                      }`}
+                    >
+                      <StIcon className={`w-3.5 h-3.5 ${isSel ? 'text-neutral-950' : 'text-zinc-500'}`} />
+                      <span>{st.label}</span>
+                    </button>
+                  );
+                })}
               </div>
 
               <div className="flex-1 overflow-y-auto space-y-3 pr-0.5 mt-1 min-h-[220px]">
@@ -7164,10 +9038,10 @@ ${itemRows}
 
                       <div className="text-xs sm:text-sm font-bold text-zinc-300 mt-2.5">{b.clientName}</div>
 
-                      <div className="flex justify-between items-center mt-3 pt-2.5 border-t border-neutral-900/60 text-[11px]">
+                      <div className="flex flex-wrap justify-between items-center mt-3 pt-2.5 border-t border-neutral-900/60 text-[11px] gap-2">
                         <span className="text-zinc-500 font-mono font-medium">{b.date} • Val. {b.validityDays} dias</span>
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-850 px-2 py-0.5 rounded-lg">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <div className="flex items-center gap-1.5 bg-neutral-900 border border-neutral-850 px-2 py-1 rounded-lg">
                             <span className={`w-2 h-2 rounded-full ${
                               b.status === 'Vendido' ? 'bg-emerald-500' :
                               b.status === 'Confirmado' ? 'bg-blue-500' :
@@ -7175,15 +9049,46 @@ ${itemRows}
                             }`}></span>
                             <span className="uppercase text-zinc-400 font-mono font-bold text-[9px]">{b.status === 'Aguardando Cliente' ? 'Aguardando' : b.status}</span>
                           </div>
+
+                          {/* Quick Edit Budget Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startEditBudget(b);
+                            }}
+                            className="bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 text-amber-400 hover:text-amber-300 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-tight flex items-center gap-1 cursor-pointer transition-colors"
+                            title="Editar Orçamento e adicionar/alterar materiais"
+                          >
+                            <span>✏️ Editar</span>
+                          </button>
+
+                          {/* Quick Add Toras to this Budget Button */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              startEditBudget(b);
+                              setActiveTab('products');
+                              setProductsSubTab('cubagem');
+                              setProdCalcMode('toras');
+                              triggerNotification(`Orçamento ${b.number} pronto para receber toras!`);
+                            }}
+                            className="bg-indigo-500/20 hover:bg-indigo-500/35 border border-indigo-500/50 text-indigo-300 hover:text-indigo-200 px-2.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-tight flex items-center gap-1 cursor-pointer transition-colors"
+                            title="Cubar e embutir toras de corte neste orçamento"
+                          >
+                            <span>🪵 + Toras</span>
+                          </button>
+
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               handleDeleteBudget(b.id, e);
                             }}
-                            className="w-10 h-10 rounded-xl text-rose-400 hover:text-rose-350 hover:bg-rose-950/50 bg-rose-950/20 border border-rose-900/30 flex items-center justify-center transition-all cursor-pointer select-none active:scale-90 shadow-sm"
+                            className="w-8 h-8 rounded-xl text-rose-400 hover:text-rose-350 hover:bg-rose-950/50 bg-rose-950/20 border border-rose-900/30 flex items-center justify-center transition-all cursor-pointer select-none active:scale-90 shadow-sm"
                             title="Apagar Orçamento"
                           >
-                            <Trash2 className="w-5 h-5 stroke-[2]" />
+                            <Trash2 className="w-4 h-4 stroke-[2]" />
                           </button>
                         </div>
                       </div>
@@ -7208,11 +9113,18 @@ ${itemRows}
               {/* Wizard Nav */}
               <div className="flex items-center justify-between border-b border-neutral-800/80 pb-2.5">
                 <div>
-                  <span className="text-amber-500 font-extrabold text-[11px] uppercase tracking-wider block">Criar Novo Orçamento</span>
-                  <span className="text-[9px] text-zinc-500 font-medium">Preencha o passo-a-passo simples</span>
+                  <span className="text-amber-500 font-extrabold text-[11px] uppercase tracking-wider block">
+                    {editingBudgetId ? 'Editar Orçamento & Cubagem' : 'Criar Novo Orçamento'}
+                  </span>
+                  <span className="text-[9px] text-zinc-500 font-medium">
+                    {editingBudgetId ? 'Adicione ou altere toras, cubagem e materiais do orçamento' : 'Preencha o passo-a-passo simples'}
+                  </span>
                 </div>
                 <button 
-                  onClick={() => setIsCreatingBudget(false)} 
+                  onClick={() => {
+                    setIsCreatingBudget(false);
+                    setEditingBudgetId(null);
+                  }} 
                   className="bg-neutral-950/40 border border-neutral-800 hover:bg-neutral-800 text-zinc-400 hover:text-zinc-100 text-[10.5px] px-2.5 py-1.5 rounded-lg font-bold uppercase transition-all flex items-center gap-1 cursor-pointer select-none"
                 >
                   Fechar ×
@@ -7533,6 +9445,32 @@ ${itemRows}
                     </button>
                   </div>
 
+                  {/* Atalho para Cubagem de Toras & Desdobro no m³ */}
+                  <div className="bg-gradient-to-r from-indigo-950/70 via-neutral-900 to-neutral-950 border-2 border-indigo-500/40 p-3.5 rounded-xl flex items-center justify-between gap-3 shadow-md animate-fade-in shrink-0">
+                    <div className="min-w-0 flex-1">
+                      <span className="text-[10.5px] text-indigo-300 font-extrabold uppercase tracking-wider block flex items-center gap-1.5">
+                        <Calculator className="w-3.5 h-3.5 text-indigo-400" />
+                        <span>🪵 Cortar Toras no m³ (Calculadora Huber)</span>
+                      </span>
+                      <span className="text-[9.5px] text-zinc-300 block mt-0.5 leading-normal">
+                        O cliente trouxe toras para corte/desdobro? Cubar diâmetro e comprimento no m³ para embutir neste orçamento.
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('products');
+                        setProductsSubTab('cubagem');
+                        setProdCalcMode('toras');
+                        triggerNotification('Calculadora Huber aberta! Meça a tora e clique em "Adicionar ao Orçamento".');
+                      }}
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-xl font-black text-[10px] uppercase tracking-wide transition-all active:scale-90 cursor-pointer flex items-center gap-1 shrink-0 select-none shadow"
+                    >
+                      <span>Cubar Toras</span>
+                      <ChevronRight className="w-3.5 h-3.5 stroke-[3]" />
+                    </button>
+                  </div>
+
                   {/* Real-time Detailed Basket List (Cesta de Materiais) */}
                   {bItems.length > 0 && (
                     <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 space-y-3 max-h-[350px] flex flex-col shrink-0 shadow-lg">
@@ -7550,12 +9488,37 @@ ${itemRows}
                             const pcs = Math.round(item.quantity / (singleVol || 1));
                             qtyText = `${pcs} pçs (Ø${item.diameter}cm x ${item.length}m = ${item.quantity.toFixed(3)}m³)`;
                             itemTotal = item.product.price * item.quantity;
+                          } else if (item.product.unit === 'M3_BLOCO' && item.thickness && item.width && item.length) {
+                            const singleVol = (item.thickness * item.width * item.length) / 10000;
+                            qtyText = `${item.quantity} pçs de Bloco (${item.thickness}x${item.width}cm x ${item.length}m = ${(singleVol * item.quantity).toFixed(3)}m³)`;
+                            itemTotal = singleVol * item.product.price * item.quantity;
                           } else if ((item.product.unit === 'TABUA' || item.product.unit === 'PRANCHA') && item.width && item.length) {
                             qtyText = `${item.quantity} pçs (${item.width}cm x ${item.length}m)`;
                             itemTotal = item.width * item.product.price * item.length * item.quantity;
                           } else if (item.product.unit === 'M' && item.length) {
                             qtyText = `${item.quantity} pçs (${item.length}m)`;
                             itemTotal = item.product.price * item.length * item.quantity;
+                          } else if (item.product.unit === 'HORA') {
+                            qtyText = `${item.quantity} hr(s) de máquina`;
+                            itemTotal = item.product.price * item.quantity;
+                          } else if (item.product.unit === 'M2') {
+                            qtyText = `${item.quantity} m²`;
+                            itemTotal = item.product.price * item.quantity;
+                          } else if (item.product.unit === 'MIL') {
+                            qtyText = `${item.quantity} pçs (${(item.quantity / 1000).toFixed(2)} milheiros)`;
+                            itemTotal = item.product.price * (item.quantity / 1000);
+                          } else if (item.product.unit === 'ST') {
+                            qtyText = `${item.quantity} st (Metro Estéreo)`;
+                            itemTotal = item.product.price * item.quantity;
+                          } else if (item.product.unit === 'KG') {
+                            qtyText = `${item.quantity} kg`;
+                            itemTotal = item.product.price * item.quantity;
+                          } else if (item.product.unit === 'TON') {
+                            qtyText = `${item.quantity} ton`;
+                            itemTotal = item.product.price * item.quantity;
+                          } else if (item.product.unit === 'DIARIA') {
+                            qtyText = `${item.quantity} diária(s)`;
+                            itemTotal = item.product.price * item.quantity;
                           } else {
                             qtyText = `${item.quantity} pçs`;
                             itemTotal = item.product.price * item.quantity;
@@ -8423,12 +10386,37 @@ ${itemRows}
                       const pcs = Math.round(it.quantity / (singleVol || 1));
                       itQtdOutput = `${pcs} pçs (Ø${it.diameter}cm x ${it.length}m = ${it.quantity.toFixed(3)}m³)`;
                       itTotalOutput = it.price * it.quantity;
+                    } else if (it.unit === 'M3_BLOCO' && it.thickness && it.width && it.length) {
+                      const singleVol = (it.thickness * it.width * it.length) / 10000;
+                      itQtdOutput = `${it.quantity} pçs de Bloco (${it.thickness}x${it.width}cm x ${it.length}m = ${(singleVol * it.quantity).toFixed(3)}m³)`;
+                      itTotalOutput = singleVol * it.price * it.quantity;
                     } else if ((it.unit === 'TABUA' || it.unit === 'PRANCHA') && it.width && it.length) {
                       itQtdOutput = `${it.quantity} pçs (${it.width}cm x ${it.length}m)`;
                       itTotalOutput = it.width * it.price * it.length * it.quantity;
                     } else if (it.unit === 'M' && it.length) {
                       itQtdOutput = `${it.quantity} pçs (${it.length}m)`;
                       itTotalOutput = it.price * it.length * it.quantity;
+                    } else if (it.unit === 'HORA') {
+                      itQtdOutput = `${it.quantity} hr(s) de máquina`;
+                      itTotalOutput = it.price * it.quantity;
+                    } else if (it.unit === 'M2') {
+                      itQtdOutput = `${it.quantity} m²`;
+                      itTotalOutput = it.price * it.quantity;
+                    } else if (it.unit === 'MIL') {
+                      itQtdOutput = `${it.quantity} pçs (${(it.quantity / 1000).toFixed(2)} milheiros)`;
+                      itTotalOutput = it.price * (it.quantity / 1000);
+                    } else if (it.unit === 'ST') {
+                      itQtdOutput = `${it.quantity} st (Metro Estéreo)`;
+                      itTotalOutput = it.price * it.quantity;
+                    } else if (it.unit === 'KG') {
+                      itQtdOutput = `${it.quantity} kg`;
+                      itTotalOutput = it.price * it.quantity;
+                    } else if (it.unit === 'TON') {
+                      itQtdOutput = `${it.quantity} ton`;
+                      itTotalOutput = it.price * it.quantity;
+                    } else if (it.unit === 'DIARIA') {
+                      itQtdOutput = `${it.quantity} diária(s)`;
+                      itTotalOutput = it.price * it.quantity;
                     } else {
                       itQtdOutput = `${it.quantity} pçs`;
                       itTotalOutput = it.price * it.quantity;
@@ -8533,6 +10521,14 @@ ${itemRows}
               {/* Action buttons inside viewingBudget */}
               <div className="flex flex-col gap-2.5 mt-2 mb-1 shrink-0">
                 <button
+                  type="button"
+                  onClick={() => startEditBudget(viewingBudget)}
+                  className="w-full bg-amber-500 hover:bg-amber-400 text-neutral-950 border border-amber-400 py-3.5 rounded-xl flex items-center justify-center gap-2 text-xs font-black uppercase tracking-wider cursor-pointer active:scale-95 transition-all shadow-md shadow-amber-950/20"
+                >
+                  <Pencil className="w-4 h-4 text-neutral-950 stroke-[2.5]" /> Alterar Itens / Adicionar Cubagem
+                </button>
+
+                <button
                   onClick={() => duplicateAndVersionBudget(viewingBudget)}
                   className="w-full bg-neutral-800 hover:bg-neutral-750 text-zinc-100 border border-neutral-750 py-3 rounded-xl flex items-center justify-center gap-1.5 text-xs font-extrabold cursor-pointer active:scale-95 transition-all"
                 >
@@ -8609,6 +10605,11 @@ ${itemRows}
                                qtyDisplay = `${pcs} pçs (Ø${it.diameter}cm x ${it.length}m = ${it.quantity.toFixed(3)}m³)`;
                                rowTotal = it.price * it.quantity;
                                priceDisplay = `R$ ${it.price.toLocaleString('pt-BR')}/m³`;
+                             } else if (it.unit === 'M3_BLOCO' && it.thickness && it.width && it.length) {
+                               const singleVol = (it.thickness * it.width * it.length) / 10000;
+                               qtyDisplay = `${it.quantity} pçs Bloco (${it.thickness}x${it.width}cm x ${it.length}m = ${(singleVol * it.quantity).toFixed(3)}m³)`;
+                               rowTotal = singleVol * it.price * it.quantity;
+                               priceDisplay = `R$ ${it.price.toLocaleString('pt-BR')}/m³`;
                              } else if ((it.unit === 'TABUA' || it.unit === 'PRANCHA') && it.width && it.length) {
                                qtyDisplay = `${it.quantity} pçs (${it.width}cm x ${it.length}m)`;
                                rowTotal = it.width * it.price * it.length * it.quantity;
@@ -8617,6 +10618,34 @@ ${itemRows}
                                qtyDisplay = `${it.quantity} pçs (${it.length}m)`;
                                rowTotal = it.price * it.length * it.quantity;
                                priceDisplay = `R$ ${it.price.toLocaleString('pt-BR')}/m`;
+                             } else if (it.unit === 'HORA') {
+                               qtyDisplay = `${it.quantity} hr(s)`;
+                               rowTotal = it.price * it.quantity;
+                               priceDisplay = `R$ ${it.price.toLocaleString('pt-BR')}/h`;
+                             } else if (it.unit === 'M2') {
+                               qtyDisplay = `${it.quantity} m²`;
+                               rowTotal = it.price * it.quantity;
+                               priceDisplay = `R$ ${it.price.toLocaleString('pt-BR')}/m²`;
+                             } else if (it.unit === 'MIL') {
+                               qtyDisplay = `${it.quantity} pçs (${(it.quantity / 1000).toFixed(2)} milh)`;
+                               rowTotal = it.price * (it.quantity / 1000);
+                               priceDisplay = `R$ ${it.price.toLocaleString('pt-BR')}/milh`;
+                             } else if (it.unit === 'ST') {
+                               qtyDisplay = `${it.quantity} st`;
+                               rowTotal = it.price * it.quantity;
+                               priceDisplay = `R$ ${it.price.toLocaleString('pt-BR')}/st`;
+                             } else if (it.unit === 'KG') {
+                               qtyDisplay = `${it.quantity} kg`;
+                               rowTotal = it.price * it.quantity;
+                               priceDisplay = `R$ ${it.price.toLocaleString('pt-BR')}/kg`;
+                             } else if (it.unit === 'TON') {
+                               qtyDisplay = `${it.quantity} ton`;
+                               rowTotal = it.price * it.quantity;
+                               priceDisplay = `R$ ${it.price.toLocaleString('pt-BR')}/ton`;
+                             } else if (it.unit === 'DIARIA') {
+                               qtyDisplay = `${it.quantity} diária(s)`;
+                               rowTotal = it.price * it.quantity;
+                               priceDisplay = `R$ ${it.price.toLocaleString('pt-BR')}/dia`;
                              } else {
                                qtyDisplay = `${it.quantity} pçs`;
                                rowTotal = it.price * it.quantity;
@@ -8705,8 +10734,13 @@ ${itemRows}
               <div id="draft-invoice-card" className="space-y-3 flex-1 overflow-y-auto bg-zinc-100 pr-0.5 pt-4">
                 <div className="flex justify-between items-center border-b border-zinc-300 pb-1.5">
                   <div className="text-left">
-                    <span className="font-bold text-xs uppercase tracking-wider block text-amber-800">OrçaFacil Pro</span>
-                    <span className="text-[7.5px] text-zinc-500 block font-mono">CNPJ: 00.320.123/0001-99 • PRÉVIA RASCUNHO</span>
+                    <span className="font-bold text-xs uppercase tracking-wider block text-amber-800">{companyProfile.companyName || 'OrçaFacil Pro'}</span>
+                    <span className="text-[7.5px] text-zinc-500 block font-mono">
+                      {companyProfile.cnpj ? `CNPJ: ${companyProfile.cnpj}` : companyProfile.cpf ? `CPF: ${companyProfile.cpf}` : 'Sem CNPJ/CPF cadastrado'} {companyProfile.phone ? `• Tel: ${companyProfile.phone}` : ''} • PRÉVIA RASCUNHO
+                    </span>
+                    {companyProfile.ownerName && (
+                      <span className="text-[7px] text-zinc-600 block">Resp: {companyProfile.ownerName}</span>
+                    )}
                   </div>
                   <div className="text-right font-mono text-[9px]">
                     <span className="font-bold block text-amber-700">#RASCUNHO</span>
@@ -8873,8 +10907,10 @@ ${itemRows}
                           <body>
                             <div style="display: flex; justify-content: space-between; align-items: center;">
                               <div>
-                                <div class="title">OrçaFacil Pro</div>
-                                <div class="subtitle">CNPJ: 00.320.123/0001-99 • RASCUNHO EXPORT</div>
+                                <div class="title">${companyProfile.companyName || 'OrçaFacil Pro'}</div>
+                                <div class="subtitle">${companyProfile.cnpj ? `CNPJ: ${companyProfile.cnpj}` : companyProfile.cpf ? `CPF: ${companyProfile.cpf}` : ''} ${companyProfile.phone ? `• Tel: ${companyProfile.phone}` : ''} • RASCUNHO EXPORT</div>
+                                ${companyProfile.ownerName ? `<div style="font-size:11px; color:#555;">Resp: ${companyProfile.ownerName}</div>` : ''}
+                                ${companyProfile.address ? `<div style="font-size:11px; color:#555;">Endereço: ${companyProfile.address} - ${companyProfile.cityState}</div>` : ''}
                               </div>
                               <div style="text-align: right;">
                                 <strong>#RASCUNHO_ESTIMA</strong><br/>
@@ -9707,10 +11743,18 @@ ${itemRows}
                             onChange={(e) => setEditProdUnit(e.target.value as UnitType)}
                             className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-300 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-sans font-bold h-11"
                           >
-                            <option value="M3">M3 (Metro Cúbico)</option>
+                            <option value="M3">M3 (Metro Cúbico Huber/Tora Roliça)</option>
+                            <option value="M3_BLOCO">M3 BLOCO (Metro Cúbico de Prancha/Bloco Retangular)</option>
                             <option value="TABUA">TÁBUA (cm Largura * m linear)</option>
                             <option value="PRANCHA">PRANCHA (cm Largura * m linear)</option>
                             <option value="M">M (Metro Linear)</option>
+                            <option value="HORA">HORA (Horas de Máquina / Serviço por Hora)</option>
+                            <option value="M2">M2 (Metro Quadrado - Forro, Deck, Assoalho)</option>
+                            <option value="MIL">MIL (Milheiro - 1.000 pçs)</option>
+                            <option value="ST">ST (Metro Estéreo - Lenha/Empilhados)</option>
+                            <option value="KG">KG (Quilograma - Biomassa/Resina/Carvão)</option>
+                            <option value="TON">TON (Tonelada - Lenha/Cavaco/Madeira Bruta)</option>
+                            <option value="DIARIA">DIÁRIA (Mão de Obra / Operador / Empreitada)</option>
                             <option value="UN">UN (Unidade)</option>
                           </select>
                         </div>
@@ -9950,16 +11994,316 @@ ${itemRows}
               </motion.div>
             </motion.div>
           )}
+
+          {/* MODAL DE VINCULAÇÃO DE CUBAGEM / CORTE DE TORAS AO ORÇAMENTO DO CLIENTE */}
+          {showAttachWoodModal && (
+            <motion.div
+              key="attach-wood-modal"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-neutral-950/85 backdrop-blur-md z-50 flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+            >
+              <motion.div
+                initial={{ scale: 0.94, opacity: 0, y: 20 }}
+                animate={{ scale: 1, opacity: 1, y: 0 }}
+                exit={{ scale: 0.94, opacity: 0, y: 20 }}
+                transition={{ duration: 0.2, ease: 'easeOut' }}
+                className="bg-neutral-900 border-2 border-amber-500/70 rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl flex flex-col my-auto max-h-[92vh]"
+              >
+                {/* Modal Header */}
+                <div className="p-4 sm:p-5 bg-neutral-950 border-b border-neutral-800 flex justify-between items-center shrink-0">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-2xl bg-amber-500 text-neutral-950 flex items-center justify-center font-black shrink-0 shadow-md">
+                      <Receipt className="w-5 h-5 stroke-[2.5]" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-sm sm:text-base font-black text-amber-400 uppercase tracking-wide truncate">
+                        Embutir Cubagem no Orçamento
+                      </h3>
+                      <p className="text-[11px] text-zinc-400 font-medium">
+                        Adicione o volume de toras ou desdobro ao orçamento do cliente
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowAttachWoodModal(false)}
+                    className="w-8 h-8 rounded-xl bg-neutral-900 hover:bg-neutral-800 text-zinc-400 hover:text-zinc-100 flex items-center justify-center font-bold text-sm cursor-pointer transition-colors border border-neutral-800 shrink-0"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                {/* Modal Body */}
+                <div className="p-4 sm:p-5 overflow-y-auto space-y-4 font-sans text-xs flex-1">
+                  {/* Resumo da Cubagem a Inserir */}
+                  {(() => {
+                    let summaryTitle = '';
+                    let summaryDetails = '';
+                    let summaryVolM3 = 0;
+                    let summaryValReais = 0;
+
+                    if (attachTargetSource === 'current_tora') {
+                      const d = parseFloat(calcDiameter) || 0;
+                      const l = parseFloat(calcLength) || 0;
+                      summaryVolM3 = parseCubicMeters(d, l);
+                      summaryValReais = summaryVolM3 * attachPriceM3;
+                      summaryTitle = `Tora Roliça Huber: Ø ${d}cm × ${l}m`;
+                      summaryDetails = `Fórmula de Huber: (π × ${d}² × ${l}) / 40.000`;
+                    } else if (attachTargetSource === 'history_toras') {
+                      summaryVolM3 = calcHistory.reduce((s, h) => s + h.volume, 0);
+                      summaryValReais = summaryVolM3 * attachPriceM3;
+                      summaryTitle = `Histórico de Toras (${calcHistory.length} toras)`;
+                      summaryDetails = `Soma de todas as toras medidas na calculadora`;
+                    } else if (attachTargetSource === 'block_history') {
+                      summaryVolM3 = blockCalcHistory.reduce((s, b) => s + b.volumeTotal, 0);
+                      summaryValReais = summaryVolM3 * attachPriceM3;
+                      summaryTitle = `Romaneio de Pranchas (${blockCalcHistory.length} lotes)`;
+                      summaryDetails = `${blockCalcHistory.reduce((s, b) => s + b.qty, 0)} peças somadas no m³ serrado`;
+                    }
+
+                    return (
+                      <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 space-y-2.5 shadow-inner">
+                        <div className="flex justify-between items-start gap-2">
+                          <div>
+                            <span className="text-[10px] text-zinc-500 uppercase font-mono tracking-wider block">Material a Embutir</span>
+                            <span className="font-extrabold text-sm text-zinc-100 block mt-0.5">{summaryTitle}</span>
+                            <span className="text-[10px] text-zinc-400 block font-mono">{summaryDetails}</span>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <span className="text-[10px] text-zinc-500 uppercase font-mono tracking-wider block">Metragem</span>
+                            <span className="text-sm sm:text-base font-black text-indigo-400 font-mono block">
+                              {summaryVolM3.toFixed(3)} m³
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="pt-2 border-t border-neutral-900 flex justify-between items-center text-xs">
+                          <span className="text-zinc-400 font-medium">Valor Total da Cubagem:</span>
+                          <span className="font-mono text-base font-black text-amber-400">
+                            R$ {summaryValReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Seleção do Tipo de Operação */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-zinc-400 uppercase font-black tracking-wider block">
+                      Tipo de Operação no Orçamento
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAttachOperationType('servico_corte')}
+                        className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer ${
+                          attachOperationType === 'servico_corte'
+                            ? 'bg-amber-500/15 border-amber-500 text-amber-300 shadow-md font-bold'
+                            : 'bg-neutral-950 border-neutral-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        <span className="text-xs font-black uppercase flex items-center gap-1.5">
+                          <span>🪵 Serviço de Corte</span>
+                        </span>
+                        <span className="text-[10px] text-zinc-400 leading-tight">
+                          O cliente trouxe as toras dele para serrar na empresa
+                        </span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setAttachOperationType('venda_madeira')}
+                        className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all cursor-pointer ${
+                          attachOperationType === 'venda_madeira'
+                            ? 'bg-amber-500/15 border-amber-500 text-amber-300 shadow-md font-bold'
+                            : 'bg-neutral-950 border-neutral-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        <span className="text-xs font-black uppercase flex items-center gap-1.5">
+                          <span>🌲 Venda de Madeira</span>
+                        </span>
+                        <span className="text-[10px] text-zinc-400 leading-tight">
+                          A serraria vende as toras/madeira em m³ para o cliente
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Preço do m³ editável */}
+                  <div className="space-y-1.5 bg-neutral-950 p-3 rounded-xl border border-neutral-800">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] text-zinc-400 uppercase font-black tracking-wider block">
+                        Preço por m³ (R$)
+                      </label>
+                      <span className="text-[10px] text-amber-400 font-mono font-bold">
+                        R$ {attachPriceM3.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/m³
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setAttachPriceM3(Math.max(10, attachPriceM3 - 50))}
+                        className="bg-neutral-800 hover:bg-neutral-750 text-zinc-100 font-black w-10 h-10 rounded-xl flex items-center justify-center cursor-pointer select-none text-base border border-neutral-700"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="number"
+                        step="10"
+                        value={attachPriceM3}
+                        onChange={(e) => setAttachPriceM3(Math.max(0, parseFloat(e.target.value) || 0))}
+                        className="w-full bg-neutral-900 border border-neutral-700 rounded-xl py-2 px-3 text-center font-mono font-black text-amber-400 text-base outline-none focus:border-amber-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setAttachPriceM3(attachPriceM3 + 50)}
+                        className="bg-neutral-800 hover:bg-neutral-750 text-zinc-100 font-black w-10 h-10 rounded-xl flex items-center justify-center cursor-pointer select-none text-base border border-neutral-700"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Seleção do Cliente */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-zinc-400 uppercase font-black tracking-wider block">
+                      Selecione o Cliente do Orçamento
+                    </label>
+                    <select
+                      value={attachClientId}
+                      onChange={(e) => {
+                        const newCliId = e.target.value;
+                        setAttachClientId(newCliId);
+                        if (newCliId !== 'new') {
+                          const cliBudgets = budgets.filter(b => b.clientId === newCliId);
+                          if (cliBudgets.length > 0) {
+                            setAttachBudgetId(cliBudgets[0].id);
+                          } else {
+                            setAttachBudgetId('new_budget');
+                          }
+                        } else {
+                          setAttachBudgetId('new_budget');
+                        }
+                      }}
+                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs text-zinc-100 font-bold outline-none focus:border-amber-500 cursor-pointer"
+                    >
+                      {editingBudgetId && (
+                        <option value={budgets.find(b => b.id === editingBudgetId)?.clientId || 'active'}>
+                          ⭐ Orçamento Ativo em Edição ({bSelectedClient?.name || bNewClientName || 'Cliente Atual'})
+                        </option>
+                      )}
+                      {clients.map(c => (
+                        <option key={c.id} value={c.id}>
+                          👤 {c.name} {c.phone ? `(${c.phone})` : ''} — {budgets.filter(b => b.clientId === c.id).length} orçamentos
+                        </option>
+                      ))}
+                      <option value="new">➕ Cadastrar Novo Cliente Agora...</option>
+                    </select>
+
+                    {/* Campos para novo cliente se selecionado */}
+                    {attachClientId === 'new' && (
+                      <div className="p-3 bg-neutral-950 rounded-xl border border-neutral-800 space-y-2 mt-2 animate-fade-in">
+                        <span className="text-[10px] font-bold text-amber-400 uppercase block">Dados do Novo Cliente</span>
+                        <input
+                          type="text"
+                          placeholder="Nome completo ou Razão Social *"
+                          value={attachNewClientName}
+                          onChange={(e) => setAttachNewClientName(e.target.value)}
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded-xl p-2.5 text-xs text-zinc-100 outline-none focus:border-amber-500 font-medium"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Telefone / WhatsApp (opcional)"
+                          value={attachNewClientPhone}
+                          onChange={(e) => setAttachNewClientPhone(formatBrazilianPhoneNumber(e.target.value))}
+                          className="w-full bg-neutral-900 border border-neutral-700 rounded-xl p-2.5 text-xs text-zinc-100 outline-none focus:border-amber-500 font-mono"
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Seleção do Orçamento de Destino */}
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] text-zinc-400 uppercase font-black tracking-wider block">
+                      Destino da Cubagem no Orçamento
+                    </label>
+
+                    {(() => {
+                      const clientBudgets = attachClientId !== 'new' 
+                        ? budgets.filter(b => b.clientId === attachClientId)
+                        : [];
+
+                      return (
+                        <div className="space-y-2">
+                          <select
+                            value={attachBudgetId}
+                            onChange={(e) => setAttachBudgetId(e.target.value)}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs text-zinc-100 font-bold outline-none focus:border-amber-500 cursor-pointer"
+                          >
+                            {editingBudgetId && (
+                              <option value="existing_active">
+                                📋 Adicionar à Cesta do Orçamento em Edição ({bItems.length} materiais atuais)
+                              </option>
+                            )}
+                            {clientBudgets.map(b => (
+                              <option key={b.id} value={b.id}>
+                                📥 Embutir no Orçamento {b.number} — R$ {b.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} ({b.items.length} itens)
+                              </option>
+                            ))}
+                            <option value="new_budget">
+                              ➕ Criar Novo Orçamento com esta Cubagem
+                            </option>
+                          </select>
+
+                          <div className="bg-neutral-950/80 p-3 rounded-xl border border-neutral-800/80 flex items-start gap-2 text-[11px] text-zinc-400">
+                            <span className="text-amber-500 font-bold shrink-0 mt-0.5">ℹ️</span>
+                            <span>
+                              {attachBudgetId !== 'new_budget' && attachBudgetId !== 'existing_active'
+                                ? 'A cubagem será somada aos outros materiais comprados pelo cliente (réguas, tábuas, peças). O valor final será recalculado automaticamente.'
+                                : attachBudgetId === 'existing_active'
+                                ? 'Os itens de corte/cubagem serão injetados na cesta que você já está montando.'
+                                : 'Um novo orçamento será aberto contendo esta cubagem, pronto para você adicionar outros materiais se desejar.'}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="p-4 sm:p-5 bg-neutral-950 border-t border-neutral-800 flex flex-col sm:flex-row gap-2.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowAttachWoodModal(false)}
+                    className="sm:w-1/3 bg-neutral-850 hover:bg-neutral-800 text-zinc-300 font-extrabold py-3.5 px-4 rounded-xl text-xs uppercase cursor-pointer transition-colors text-center"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmAttachWood}
+                    className="sm:w-2/3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-neutral-950 font-black py-3.5 px-5 rounded-xl text-xs sm:text-sm uppercase tracking-wider cursor-pointer shadow-lg shadow-amber-950/50 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                  >
+                    <Receipt className="w-4 h-4 stroke-[2.5]" />
+                    <span>✅ Confirmar e Embutir no Orçamento</span>
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
         </AnimatePresence>
 
         {/* BOTTOM NAVIGATION BAR */}
         <div className="h-18 border-t border-neutral-800 bg-neutral-950 flex justify-around items-center px-3 pb-1 shrink-0 z-10 text-xs font-sans">
           {[
-            { id: 'dashboard', label: 'Início', icon: TrendingUp },
-            { id: 'budgets', label: 'Orçamentos', icon: FileText },
-            { id: 'calculators', label: 'Projetos', icon: Calculator },
-            { id: 'clients', label: 'Clientes', icon: Users },
-            { id: 'products', label: 'Madeiras', icon: ShoppingBag }
+            { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
+            { id: 'budgets', label: 'Orçamentos', icon: Receipt },
+            { id: 'calculators', label: 'Projetos', icon: DraftingCompass },
+            { id: 'clients', label: 'Clientes', icon: Users2 },
+            { id: 'products', label: 'Madeiras', icon: TreePine }
           ].map(tab => {
             const IconComp = tab.icon;
             const isSel = activeTab === tab.id;
@@ -9967,7 +12311,18 @@ ${itemRows}
               <motion.button 
                 key={tab.id}
                 whileTap={{ scale: 0.94 }}
-                onClick={() => { setActiveTab(tab.id); setIsCreatingBudget(false); setViewingBudget(null); setSelectedClient(null); setShowAdmin(false); setIsAddingClient(false); }}
+                onClick={() => { 
+                  setActiveTab(tab.id); 
+                  if (tab.id === 'products') {
+                    setProductsSubTab('cubagem');
+                    setProdCalcMode('toras'); // Always show Toras (Huber) first when clicking Madeiras
+                  }
+                  setIsCreatingBudget(false); 
+                  setViewingBudget(null); 
+                  setSelectedClient(null); 
+                  setShowAdmin(false); 
+                  setIsAddingClient(false); 
+                }}
                 className={`flex flex-col items-center justify-center flex-1 py-1.5 select-none cursor-pointer transition-all relative ${isSel ? 'text-amber-500 font-extrabold' : 'text-zinc-400 hover:text-zinc-200'}`}
               >
                 {isSel && (
