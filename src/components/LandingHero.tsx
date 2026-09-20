@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { 
-  Shield, CheckCircle, Database, Phone, FileText, Smartphone, 
-  Map, Sparkles, Award, Zap, Layers, Server, TrendingUp, HelpCircle
+  Shield, CheckCircle, CheckCircle2, Database, Phone, FileText, Smartphone, 
+  Map, Sparkles, Award, Zap, Layers, Server, TrendingUp, HelpCircle,
+  Factory, TreePine, Calculator, Scale, ArrowRight, Gauge, FileCheck
 } from 'lucide-react';
 
 interface LandingHeroProps {
@@ -33,7 +34,11 @@ export default function LandingHero({ logs, onClearLogs, children }: LandingHero
 
           <div className="hidden md:flex items-center gap-6 text-sm text-zinc-400">
             <a href="#simulator" className="hover:text-zinc-100 font-medium transition-colors">Emulador do App</a>
-            <a href="#technical" className="hover:text-zinc-100 font-medium transition-colors">Estrutura DB & Arquitetura</a>
+            <a href="#bimodal-architecture" className="hover:text-amber-400 font-bold transition-colors flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400"></span>
+              Sistema Bimodal
+            </a>
+            <a href="#technical" className="hover:text-zinc-100 font-medium transition-colors">Estrutura DB & Cubagem</a>
             <a href="#roadmap" className="hover:text-zinc-100 font-medium transition-colors">Plano de Escala</a>
           </div>
 
@@ -348,6 +353,196 @@ export default function LandingHero({ logs, onClearLogs, children }: LandingHero
                 </div>
               </div>
             </div>
+          </div>
+
+        </div>
+      </section>
+
+      {/* BIMODAL SYSTEM SHOWCASE - MODO FÁCIL VS MODO COMPLETO (SERRARIA PRO) */}
+      <section id="bimodal-architecture" className="py-20 bg-neutral-950 border-b border-neutral-900 relative overflow-hidden">
+        {/* Subtle background glow */}
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[350px] bg-gradient-to-r from-amber-500/10 via-indigo-600/10 to-emerald-500/10 blur-[130px] -z-10 pointer-events-none" />
+
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          
+          {/* Section Header */}
+          <div className="text-center max-w-3xl mx-auto mb-16">
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-950/40 text-amber-400 border border-amber-800/30 w-fit text-xs font-mono font-bold mb-4">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>ARQUITETURA BIMODAL EXCLUSIVA • DUAL-CORE</span>
+            </div>
+            <h2 className="text-3xl sm:text-4xl lg:text-5xl font-extrabold tracking-tight text-neutral-50 leading-tight">
+              Simples no Pátio. <br />
+              <span className="bg-gradient-to-r from-amber-400 via-emerald-400 to-indigo-400 bg-clip-text text-transparent">
+                Implacável na Tomada de Decisão.
+              </span>
+            </h2>
+            <p className="mt-4 text-base text-zinc-400 leading-relaxed">
+              O maior erro dos softwares industriais é forçar o operador de tora a preencher telas complexas sob o sol, ou forçar o dono da serraria a decidir preços no escuro. O OrçaLivre Pro resolve este dilema histórico com duas experiências projetadas para propósitos opostos e integradas sobre o mesmo banco de dados local.
+            </p>
+          </div>
+
+          {/* Dual Engine Side-by-Side Comparison */}
+          <div className="grid lg:grid-cols-2 gap-8 items-stretch">
+            
+            {/* CARD 1: MODO FÁCIL */}
+            <div className="bg-gradient-to-b from-amber-950/20 via-neutral-900/60 to-neutral-950 border-2 border-amber-500/30 rounded-3xl p-6 sm:p-8 flex flex-col justify-between relative overflow-hidden group hover:border-amber-500/60 transition-all">
+              <div className="space-y-6">
+                
+                {/* Header Tag */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-xl bg-amber-500 text-neutral-950 flex items-center justify-center font-black shadow-lg shadow-amber-950/40">
+                      <Zap className="w-5 h-5 stroke-[3]" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-amber-400 font-mono font-bold uppercase tracking-wider block">Frente Operacional</span>
+                      <h3 className="text-xl sm:text-2xl font-black text-white">Modo Fácil</h3>
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono text-[11px] font-bold">
+                    Pátio & Balcão
+                  </span>
+                </div>
+
+                <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed">
+                  Desenhado para o medidor de toras, operador de campo, motorista e marceneiro autônomo. Elimina menus escondidos, janelas suspensas e jargões contábeis.
+                </p>
+
+                {/* Features List */}
+                <div className="space-y-3 pt-2">
+                  {[
+                    {
+                      title: 'Tipografia Gigante & Touch Targets de 64px',
+                      desc: 'Legibilidade imediata sob luz solar intensa e facilidade de toque mesmo com mãos calejadas ou usando luvas.'
+                    },
+                    {
+                      title: 'Fluxo em 3 Passos Lineares',
+                      desc: 'Passo 1: Cesta de Madeiras ➔ Passo 2: Descontos & Frete ➔ Passo 3: Seleção de Cliente. Zero chance de esquecer etapas.'
+                    },
+                    {
+                      title: 'Cubagem Científica Instantânea (Huber/Francon)',
+                      desc: 'Basta informar diâmetro médio e comprimento. A equação volumétrica em m³ é calculada em microssegundos.'
+                    },
+                    {
+                      title: 'Disparo no WhatsApp em 1 Clique',
+                      desc: 'Gera proposta em PDF profissional estilizado e dispara com mensagem personalizada direta sem precisar de internet.'
+                    },
+                    {
+                      title: 'Simulador Guiado Onboard',
+                      desc: 'Um robô simula o preenchimento de um orçamento ao vivo para que qualquer usuário aprenda em menos de 90 segundos.'
+                    }
+                  ].map((feat, idx) => (
+                    <div key={idx} className="flex items-start gap-3 bg-neutral-950/60 p-3 rounded-xl border border-neutral-800/60">
+                      <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-xs font-bold text-zinc-100 block">{feat.title}</span>
+                        <span className="text-[11px] text-zinc-400 leading-normal block mt-0.5">{feat.desc}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+              </div>
+
+              {/* Bottom Target Context */}
+              <div className="mt-8 pt-4 border-t border-amber-900/30 flex items-center justify-between text-xs font-mono text-zinc-400">
+                <span className="text-amber-400 font-bold">🎯 Perfil: Operador & Balcão</span>
+                <span>Zero treinamento exigido</span>
+              </div>
+            </div>
+
+            {/* CARD 2: MODO COMPLETO (SERRARIA PRO) */}
+            <div className="bg-gradient-to-b from-indigo-950/20 via-neutral-900/60 to-neutral-950 border-2 border-indigo-500/30 rounded-3xl p-6 sm:p-8 flex flex-col justify-between relative overflow-hidden group hover:border-indigo-500/60 transition-all">
+              <div className="space-y-6">
+                
+                {/* Header Tag */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black shadow-lg shadow-indigo-950/40">
+                      <Factory className="w-5 h-5 stroke-[2.5]" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-indigo-400 font-mono font-bold uppercase tracking-wider block">Inteligência Industrial</span>
+                      <h3 className="text-xl sm:text-2xl font-black text-white">Modo Completo (Serraria Pro)</h3>
+                    </div>
+                  </div>
+                  <span className="px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/30 text-indigo-300 font-mono text-[11px] font-bold">
+                    Gestão & Finanças
+                  </span>
+                </div>
+
+                <p className="text-xs sm:text-sm text-zinc-300 leading-relaxed">
+                  Projetado para proprietários de serrarias, compradores de madeira, engenheiros florestais e diretores de faturamento. Transforma toras em margem líquida real.
+                </p>
+
+                {/* Features List */}
+                <div className="space-y-3 pt-2">
+                  {[
+                    {
+                      title: 'DRE Operacional Sintético em Tempo Real',
+                      desc: 'Apura receita bruta, impostos do Simples Nacional, custo da madeira, insumos e margem operacional líquida real da serraria.'
+                    },
+                    {
+                      title: 'Calculadora de Rendimento de Desdobro & Kerf',
+                      desc: 'Simula a perda por traço de serra fita (kerf em mm), geração de serragem e costaneiras, calculando o Custo Real por m³ útil.'
+                    },
+                    {
+                      title: 'Rastreabilidade de Lotes com DOF e Guia Florestal',
+                      desc: 'Cadastra cargas com número de DOF (Documento de Origem Florestal) e Guia do IBAMA/Sema, volume em m³ e status de serragem.'
+                    },
+                    {
+                      title: 'Formação Científica de Preço com Markup',
+                      desc: 'Calcula o fator de quebra (ex: perda de 42% exige 1,72m³ de tora por 1m³ de prancha) para nunca vender com margem negativa.'
+                    },
+                    {
+                      title: 'Controle de Estoque Físico de Pátio',
+                      desc: 'Gerencia pranchas, vigas e tábuas em m³ e peças, com identificação de secagem (Verde, Seca ao Ar AD, Estufa KD) e alertas.'
+                    }
+                  ].map((feat, idx) => (
+                    <div key={idx} className="flex items-start gap-3 bg-neutral-950/60 p-3 rounded-xl border border-neutral-800/60">
+                      <CheckCircle2 className="w-4 h-4 text-indigo-400 shrink-0 mt-0.5" />
+                      <div>
+                        <span className="text-xs font-bold text-zinc-100 block">{feat.title}</span>
+                        <span className="text-[11px] text-zinc-400 leading-normal block mt-0.5">{feat.desc}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+              </div>
+
+              {/* Bottom Target Context */}
+              <div className="mt-8 pt-4 border-t border-indigo-900/30 flex items-center justify-between text-xs font-mono text-zinc-400">
+                <span className="text-indigo-400 font-bold">🎯 Perfil: Gestão & Engenharia</span>
+                <span>Decisões baseadas em margem</span>
+              </div>
+            </div>
+
+          </div>
+
+          {/* Unified Persistence Pillar Bar */}
+          <div className="mt-12 bg-neutral-900/70 border border-neutral-800 p-6 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-tr from-amber-500 to-indigo-600 p-0.5 flex items-center justify-center shrink-0 shadow-lg">
+                <div className="w-full h-full bg-neutral-950 rounded-[10px] flex items-center justify-center">
+                  <Database className="w-6 h-6 text-emerald-400" />
+                </div>
+              </div>
+              <div>
+                <h4 className="text-base font-extrabold text-zinc-100">Banco de Dados SQLite Transacional Compartilhado</h4>
+                <p className="text-xs text-zinc-400 mt-1 max-w-2xl leading-relaxed">
+                  Os dois modos são apenas lentes diferentes sobre o mesmo repositório local. Qualquer orçamento gerado ou cliente salvo no <strong>Modo Fácil</strong> é imediatamente computado no DRE e nos relatórios de conversão do <strong>Modo Completo</strong>, sem necessidade de sincronização manual ou nuvem.
+                </p>
+              </div>
+            </div>
+
+            <a 
+              href="#simulator" 
+              className="px-5 py-3 bg-gradient-to-r from-amber-500 via-emerald-500 to-indigo-600 text-neutral-950 font-black rounded-xl text-xs uppercase tracking-wider hover:opacity-90 transition-all shrink-0 shadow-lg select-none"
+            >
+              Testar os 2 Modos no Emulador
+            </a>
           </div>
 
         </div>

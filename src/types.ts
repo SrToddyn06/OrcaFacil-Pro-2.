@@ -8,6 +8,10 @@ export interface Client {
   createdAt: string;
   totalSpent: number;
   gpsCoords?: string;
+  document?: string; // CPF or CNPJ
+  city?: string;
+  state?: string;
+  clientType?: 'PF' | 'PJ';
 }
 
 export type UnitType = 'UN' | 'M' | 'M3' | 'TABUA' | 'PRANCHA' | 'HORA' | 'M2' | 'KG' | 'TON' | 'DIARIA' | 'M3_BLOCO' | 'MIL' | 'ST';
@@ -19,6 +23,11 @@ export interface Product {
   price: number;
   unit: UnitType;
   description: string;
+  category?: string;
+  diameter?: number;
+  thickness?: number;
+  width?: number;
+  length?: number;
 }
 
 export type BudgetStatus = 'Rascunho' | 'Em Processamento' | 'Aguardando Cliente' | 'Confirmado' | 'Vendido' | 'Cancelado';
@@ -75,3 +84,59 @@ export interface TableUpdateResult {
   descriptionChanged: { product: Product; oldDesc: string }[];
   unchangedCount: number;
 }
+
+// ==========================================
+// TIPOS EXCLUSIVOS DO MODO COMPLETO (SERRARIA PRO)
+// ==========================================
+
+export interface YardBatch {
+  id: string;
+  batchNumber: string;
+  entryDate: string;
+  supplier: string;
+  documentType: 'DOF' | 'Guia Florestal' | 'Nota Fiscal' | 'Romaneio Próprio';
+  documentNumber: string;
+  species: string;
+  logsCount: number;
+  grossVolumeM3: number;
+  totalCost: number;
+  costPerM3: number;
+  status: 'No Pátio' | 'Em Desdobro' | 'Processado 100%' | 'Quarentena';
+  notes?: string;
+}
+
+export interface WoodInventoryItem {
+  id: string;
+  species: string;
+  woodType: 'Tora Bruta' | 'Prancha' | 'Viga' | 'Tábua' | 'Caibro / Ripa' | 'Pontalete';
+  volumeM3: number;
+  piecesCount: number;
+  averagePricePerM3: number;
+  storageLocation: string;
+  drynessState: 'Verde' | 'Seca ao Ar (AD)' | 'Seca em Estufa (KD)';
+  minAlertM3: number;
+}
+
+export interface SawmillEfficiencyConfig {
+  toraVolumeInputM3: number;
+  recoveredLumberM3: number;
+  recoveryRatePercent: number; // Ex: 58%
+  bladeKerfMm: number;        // Espessura do traço de corte da serra
+  sawdustPercent: number;     // Perda em serragem (ex: 15%)
+  slabsPercent: number;       // Costaneiras e aparas (ex: 20%)
+  barkPercent: number;        // Casca (ex: 7%)
+  hourlyOperationalCost: number; // Custo hora da máquina/equipe
+}
+
+export interface MarkupCalculation {
+  rawWoodCostM3: number;
+  sawingLaborCostM3: number;
+  energyAndFuelCostM3: number;
+  handlingFreightM3: number;
+  lossFactorPercent: number;   // Fator de perda de desdobro (ex: 40%)
+  taxPercent: number;          // Alíquota de impostos (ex: 6% Simples)
+  desiredProfitMarginPercent: number; // Margem de lucro (ex: 30%)
+  breakEvenPriceM3: number;    // Preço de custo real / ponto de equilíbrio
+  suggestedSalePriceM3: number; // Preço sugerido de venda
+}
+

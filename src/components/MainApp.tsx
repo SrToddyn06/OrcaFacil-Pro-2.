@@ -10,14 +10,34 @@ import {
   Database, RefreshCw, Smartphone, CheckSquare, Activity, Zap, Cloud, CloudOff, Wifi, WifiOff, Edit, Edit3, Pencil,
   Building, Building2, User, UserPlus, UserCheck, Contact, Phone, MapPin, Mail, Truck, Printer, Eye, Sparkles, Wand2,
   Bot, XCircle, Save, BookOpen, Lightbulb, Compass, Scale, Box, Columns, RotateCcw, Package, PackagePlus,
-  PackageCheck, DoorClosed, Table, LayoutGrid, X, Layers
+  PackageCheck, DoorClosed, Table, LayoutGrid, X, Layers, ChevronDown, ChevronUp, Filter, Tag, Briefcase, ShoppingCart,
+  Factory
 } from 'lucide-react';
+import { ModeSelectorModal } from './ModeSelectorModal';
+import { CompleteModeModule } from './CompleteModeModule';
 import { Client, Product, Budget, BudgetItem, BudgetStatus, UnitType, TableUpdateResult } from '../types';
 import { INITIAL_PRODUCTS, INITIAL_CLIENTS, INITIAL_BUDGETS, DATABASE_SCHEMAS, SAMPLE_TXT_FILES } from '../data';
 import { Capacitor } from '@capacitor/core';
 import { Filesystem, Directory } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { App } from '@capacitor/app';
+
+// Helper to format Brazilian CPF or CNPJ
+export function formatCpfCnpj(raw: string): string {
+  const cleaned = raw.replace(/\D/g, '');
+  if (cleaned.length <= 11) {
+    return cleaned
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+  }
+  return cleaned
+    .substring(0, 14)
+    .replace(/(\d{2})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1/$2')
+    .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+}
 
 // Helper to format Brazilian telephone/WhatsApp numbers elegantly in real-time
 export function formatBrazilianPhoneNumber(raw: string): string {
@@ -330,8 +350,25 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
     setSearchQuery('');
   }, [activeTab]);
   
-  // Accessibility Mode for users 60+ (Large text, conversational labels, zero headache)
-  const [seniorMode, setSeniorMode] = useState<boolean>(true);
+  // Modo de Operação do Sistema: Modo Fácil (Rápido/Campo) vs Modo Completo (Serraria Pro/Industrial)
+  const [seniorMode, setSeniorMode] = useState<boolean>(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const saved = window.localStorage.getItem('orcafacil_operation_mode');
+        if (saved) return saved === 'easy';
+      }
+    } catch {}
+    return true; // Padrão inicial: Modo Fácil
+  });
+  const [showModeModal, setShowModeModal] = useState<boolean>(false);
+
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('orcafacil_operation_mode', seniorMode ? 'easy' : 'complete');
+      }
+    } catch {}
+  }, [seniorMode]);
 
   // Permanently close/hide greeting card "Olá, Usuário!"
   const [hideUserGreeting, setHideUserGreeting] = useState<boolean>(() => {
@@ -406,11 +443,35 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   const [editProdUnit, setEditProdUnit] = useState<UnitType>('M');
   const [editProdPrice, setEditProdPrice] = useState('');
   const [editProdDesc, setEditProdDesc] = useState('');
+  const [editProdThickness, setEditProdThickness] = useState('');
+  const [editProdWidth, setEditProdWidth] = useState('');
+  const [editProdLength, setEditProdLength] = useState('');
+  const [editProdDiameter, setEditProdDiameter] = useState('');
+  const [editProdCategory, setEditProdCategory] = useState('');
+  // Quick inline and in-card editing on catalog
+  const [inlineEditingProductId, setInlineEditingProductId] = useState<string | null>(null);
+  const [inlinePriceValue, setInlinePriceValue] = useState<string>('');
+  const [quickEditProductId, setQuickEditProductId] = useState<string | null>(null);
+  const [quickEditName, setQuickEditName] = useState<string>('');
+  const [quickEditCode, setQuickEditCode] = useState<string>('');
+  const [quickEditPrice, setQuickEditPrice] = useState<string>('');
+  const [quickEditUnit, setQuickEditUnit] = useState<UnitType>('M');
+  const [quickEditThickness, setQuickEditThickness] = useState<string>('');
+  const [quickEditWidth, setQuickEditWidth] = useState<string>('');
+  const [quickEditLength, setQuickEditLength] = useState<string>('');
+  const [quickEditDiameter, setQuickEditDiameter] = useState<string>('');
 
-  // Always guarantee 'cubagem' is the primary view whenever the user opens the Madeiras tab
+  // Always guarantee 'cubagem' is the primary view and reset calculator measures whenever the user enters the Madeiras tab
   useEffect(() => {
     if (activeTab === 'products') {
       setProductsSubTab('cubagem');
+      setCalcDiameter('');
+      setCalcLength('');
+      setCalcResult(0);
+      setBlockCalcThickness('');
+      setBlockCalcWidth('');
+      setBlockCalcLength('');
+      setBlockCalcQty('');
     }
   }, [activeTab]);
   
@@ -440,6 +501,10 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   const [newClientWhatsapp, setNewClientWhatsapp] = useState('');
   const [newClientAddress, setNewClientAddress] = useState('');
   const [newClientObs, setNewClientObs] = useState('');
+  const [newClientType, setNewClientType] = useState<'PF' | 'PJ'>('PF');
+  const [newClientDocument, setNewClientDocument] = useState('');
+  const [newClientCity, setNewClientCity] = useState('');
+  const [clientFilter, setClientFilter] = useState<'all' | 'with_orders' | 'recent'>('all');
 
   // Editing Client Form State
   const [isEditingClient, setIsEditingClient] = useState(false);
@@ -448,6 +513,9 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   const [editClientPhone, setEditClientPhone] = useState('');
   const [editClientAddress, setEditClientAddress] = useState('');
   const [editClientObs, setEditClientObs] = useState('');
+  const [editClientType, setEditClientType] = useState<'PF' | 'PJ'>('PF');
+  const [editClientDocument, setEditClientDocument] = useState('');
+  const [editClientCity, setEditClientCity] = useState('');
 
   // Draft PDF Preview State
   const [showDraftPdf, setShowDraftPdf] = useState(false);
@@ -472,21 +540,21 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   const [wizardWoodPhoto, setWizardWoodPhoto] = useState<string>('');
   const [isCameraActive, setIsCameraActive] = useState<boolean>(false);
 
-  // Cubic meter helper inside product tab
-  const [calcDiameter, setCalcDiameter] = useState<string>('40'); // cm
-  const [calcLength, setCalcLength] = useState<string>('12'); // meters
-  const [calcResult, setCalcResult] = useState<number>(1.508); // m3
+  // Cubic meter helper inside product tab - Inicia zerado conforme solicitado
+  const [calcDiameter, setCalcDiameter] = useState<string>(''); // cm - vazio por padrão
+  const [calcLength, setCalcLength] = useState<string>(''); // meters - vazio por padrão
+  const [calcResult, setCalcResult] = useState<number>(0); // m3 - 0 por padrão
   const [calcProductPrice, setCalcProductPrice] = useState<number>(450);
   const [calcHistory, setCalcHistory] = useState<{ id: string; diameter: number; length: number; volume: number; price: number; value: number }[]>([]);
 
   // Calculator Mode inside Tabela de Preços ('toras' | 'pranchas') - Defaults to 'toras' (Calculadora de Cubagem de Toras Huber)
   const [prodCalcMode, setProdCalcMode] = useState<'toras' | 'pranchas'>('toras');
 
-  // Block & Prancha Calculator States (Romaneio de Pranchas / Blocos Retangulares)
-  const [blockCalcThickness, setBlockCalcThickness] = useState<string>('15'); // cm
-  const [blockCalcWidth, setBlockCalcWidth] = useState<string>('25'); // cm
-  const [blockCalcLength, setBlockCalcLength] = useState<string>('3.0'); // m
-  const [blockCalcQty, setBlockCalcQty] = useState<string>('1'); // pçs
+  // Block & Prancha Calculator States (Romaneio de Pranchas / Blocos Retangulares) - Inicia zerado
+  const [blockCalcThickness, setBlockCalcThickness] = useState<string>(''); // cm - vazio por padrão
+  const [blockCalcWidth, setBlockCalcWidth] = useState<string>(''); // cm - vazio por padrão
+  const [blockCalcLength, setBlockCalcLength] = useState<string>(''); // m - vazio por padrão
+  const [blockCalcQty, setBlockCalcQty] = useState<string>(''); // pçs - vazio por padrão
   const [blockCalcPrice, setBlockCalcPrice] = useState<number>(450); // R$/m³
   const [blockCalcHistory, setBlockCalcHistory] = useState<{ 
     id: string; 
@@ -503,9 +571,13 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   const [showAllBlockHistory, setShowAllBlockHistory] = useState<boolean>(false);
   const [showAllToraHistory, setShowAllToraHistory] = useState<boolean>(false);
 
+  // States for clean commercial quotation document previews (Toras & Pranchas)
+  const [showTorasQuoteModal, setShowTorasQuoteModal] = useState<boolean>(false);
+  const [showPranchasQuoteModal, setShowPranchasQuoteModal] = useState<boolean>(false);
+
   // States for linking Wood Cubage (Toras Huber / Pranchas) into Specific Client Budgets
   const [showAttachWoodModal, setShowAttachWoodModal] = useState<boolean>(false);
-  const [attachTargetSource, setAttachTargetSource] = useState<'current_tora' | 'history_toras' | 'block_history'>('current_tora');
+  const [attachTargetSource, setAttachTargetSource] = useState<'current_tora' | 'history_toras' | 'block_history' | 'current_block'>('current_tora');
   const [attachOperationType, setAttachOperationType] = useState<'servico_corte' | 'venda_madeira'>('servico_corte');
   const [attachPriceM3, setAttachPriceM3] = useState<number>(450);
   const [attachClientId, setAttachClientId] = useState<string>('');
@@ -528,6 +600,15 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   const [bFreight, setBFreight] = useState<number | string>(0);
   const [bObs, setBObs] = useState<string>('');
   const [bValidity, setBValidity] = useState<number | string>(10);
+  const [bCategoryFilter, setBCategoryFilter] = useState<'all' | 'tabuas' | 'vigas' | 'toras' | 'servicos'>('all');
+  const [showBasketDrawer, setShowBasketDrawer] = useState(false);
+  const [catalogCategoryFilter, setCatalogCategoryFilter] = useState<'all' | 'tabuas' | 'vigas' | 'toras' | 'servicos'>('all');
+  const [clientSort, setClientSort] = useState<'recent' | 'spent' | 'name'>('recent');
+  const [showQuickClientAdd, setShowQuickClientAdd] = useState(false);
+  const [quickClientName, setQuickClientName] = useState('');
+  const [quickClientPhone, setQuickClientPhone] = useState('');
+  const [quickClientCity, setQuickClientCity] = useState('');
+  const [clientToDelete, setClientToDelete] = useState<Client | null>(null);
 
   // WhatsApp Intelligent Importer states
   const [showWhatsappImporter, setShowWhatsappImporter] = useState<boolean>(false);
@@ -1488,6 +1569,22 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
     setCalcResult(vol);
   };
 
+  // Reset explicit functions for zeroing calculator measurements
+  const resetTorasCalculator = () => {
+    setCalcDiameter('');
+    setCalcLength('');
+    setCalcResult(0);
+    triggerNotification("Medidas da tora zeradas!");
+  };
+
+  const resetPranchasCalculator = () => {
+    setBlockCalcThickness('');
+    setBlockCalcWidth('');
+    setBlockCalcLength('');
+    setBlockCalcQty('');
+    triggerNotification("Dimensões de pranchas zeradas!");
+  };
+
   const addToraToHistory = () => {
     const d = parseFloat(calcDiameter) || 0;
     const l = parseFloat(calcLength) || 0;
@@ -2172,14 +2269,17 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   // Add new customer local action
   const handleAddClient = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newClientName) return;
+    if (!newClientName.trim()) return;
 
     const cleanClient: Client = {
       id: 'c_' + Date.now(),
-      name: newClientName,
+      name: newClientName.trim(),
+      clientType: newClientType,
+      document: newClientDocument ? formatCpfCnpj(newClientDocument) : undefined,
       phone: newClientPhone || '(00) 00000-0000',
       whatsapp: newClientWhatsapp ? newClientWhatsapp.replace(/\D/g, '') : '',
       address: newClientAddress || 'Retira na Distribuidora',
+      city: newClientCity || undefined,
       observations: newClientObs,
       createdAt: new Date().toISOString().split('T')[0],
       totalSpent: 0
@@ -2191,6 +2291,9 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
     setNewClientPhone('');
     setNewClientWhatsapp('');
     setNewClientAddress('');
+    setNewClientCity('');
+    setNewClientDocument('');
+    setNewClientType('PF');
     setNewClientObs('');
 
     triggerNotification(`Cliente "${cleanClient.name}" cadastrado offline!`);
@@ -2207,12 +2310,15 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
 
     const updated = clients.map(c => {
       if (c.id === selectedClient.id) {
-        const u = {
+        const u: Client = {
           ...c,
-          name: editClientName,
+          name: editClientName.trim(),
+          clientType: editClientType,
+          document: editClientDocument ? formatCpfCnpj(editClientDocument) : undefined,
           phone: editClientPhone,
           whatsapp: editClientPhone ? editClientPhone.replace(/\D/g, '') : '',
           address: editClientAddress,
+          city: editClientCity || undefined,
           observations: editClientObs
         };
         // Update selectedClient reference as well
@@ -2228,10 +2334,12 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
     onAddLog(`Cliente "${editClientName}" editado e atualizado localmente.`);
   };
 
-  const handleDeleteClient = (clientId: string) => {
-    const targetName = selectedClient?.name || 'Cliente';
+  const handleDeleteClient = (clientId: string, clientName?: string) => {
+    const targetName = clientName || selectedClient?.name || 'Cliente';
     setClients(prev => prev.filter(c => c.id !== clientId));
-    setSelectedClient(null);
+    if (selectedClient?.id === clientId) {
+      setSelectedClient(null);
+    }
     triggerNotification(`Cliente "${targetName}" excluído!`);
     onAddLog(`Cliente "${targetName}" excluído fisicamente.`);
   };
@@ -2248,16 +2356,25 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
       return;
     }
     const priceVal = parseFloat(editProdPrice) || 0;
+    const thicknessVal = editProdThickness ? parseFloat(editProdThickness) : undefined;
+    const widthVal = editProdWidth ? parseFloat(editProdWidth) : undefined;
+    const lengthVal = editProdLength ? parseFloat(editProdLength) : undefined;
+    const diameterVal = editProdDiameter ? parseFloat(editProdDiameter) : undefined;
     
     setProducts(prev => prev.map(p => {
       if (p.id === editingProduct.id) {
         return {
           ...p,
-          name: editProdName,
-          code: editProdCode,
+          name: editProdName.trim(),
+          code: editProdCode.trim().toUpperCase(),
           unit: editProdUnit,
           price: priceVal,
-          description: editProdDesc
+          description: editProdDesc,
+          category: editProdCategory || p.category,
+          thickness: thicknessVal,
+          width: widthVal,
+          length: lengthVal,
+          diameter: diameterVal
         };
       }
       return p;
@@ -2266,6 +2383,18 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
     triggerNotification("✔️ Alterações salvas com sucesso!");
     onAddLog(`Madeira editada: ${editProdName} (SKU: ${editProdCode}, R$ ${priceVal.toLocaleString('pt-BR')})`);
     setEditingProduct(null);
+  };
+
+  const handleSaveInlinePrice = (productId: string) => {
+    const val = parseFloat(inlinePriceValue);
+    if (isNaN(val) || val < 0) {
+      triggerNotification("⚠️ Preço inválido!");
+      return;
+    }
+    setProducts(prev => prev.map(p => p.id === productId ? { ...p, price: val } : p));
+    setInlineEditingProductId(null);
+    setInlinePriceValue('');
+    triggerNotification("✔️ Preço atualizado no catálogo!");
   };
 
   const handleDeleteProduct = (productId: string) => {
@@ -2277,6 +2406,76 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
     if (editingProduct?.id === productId) {
       setEditingProduct(null);
     }
+  };
+
+  const handleSaveQuickEditProduct = (productId: string) => {
+    if (!quickEditName.trim()) {
+      triggerNotification("⚠️ O nome do item não pode ficar em branco!");
+      return;
+    }
+    const priceVal = parseFloat(quickEditPrice) || 0;
+    const thicknessVal = quickEditThickness ? parseFloat(quickEditThickness) : undefined;
+    const widthVal = quickEditWidth ? parseFloat(quickEditWidth) : undefined;
+    const lengthVal = quickEditLength ? parseFloat(quickEditLength) : undefined;
+    const diameterVal = quickEditDiameter ? parseFloat(quickEditDiameter) : undefined;
+
+    setProducts(prev => prev.map(p => {
+      if (p.id === productId) {
+        return {
+          ...p,
+          name: quickEditName.trim(),
+          code: (quickEditCode || p.code).trim().toUpperCase(),
+          unit: quickEditUnit,
+          price: priceVal,
+          thickness: thicknessVal,
+          width: widthVal,
+          length: lengthVal,
+          diameter: diameterVal
+        };
+      }
+      return p;
+    }));
+    setQuickEditProductId(null);
+    triggerNotification("✔️ Item atualizado com sucesso!");
+    onAddLog(`Item ${quickEditName} atualizado no catálogo.`);
+  };
+
+  const handleDuplicateProduct = (p: Product) => {
+    const clone: Product = {
+      ...p,
+      id: 'prod_' + Date.now(),
+      code: p.code + '-CP',
+      name: p.name + ' (Cópia)',
+    };
+    setProducts(prev => [clone, ...prev]);
+    triggerNotification(`Item duplicado: ${clone.name}`);
+    onAddLog(`Item clonado no catálogo: ${clone.name}`);
+  };
+
+  const handleSaveQuickClient = () => {
+    if (!quickClientName.trim()) {
+      triggerNotification('Informe pelo menos o nome do cliente!');
+      return;
+    }
+    const cleanClient: Client = {
+      id: 'c_' + Date.now(),
+      name: quickClientName.trim(),
+      clientType: 'PF',
+      phone: quickClientPhone || '(00) 00000-0000',
+      whatsapp: quickClientPhone ? quickClientPhone.replace(/\D/g, '') : '',
+      address: 'Retira na Madeireira',
+      city: quickClientCity || undefined,
+      observations: '',
+      createdAt: new Date().toISOString().split('T')[0],
+      totalSpent: 0
+    };
+    setClients(prev => [cleanClient, ...prev]);
+    setQuickClientName('');
+    setQuickClientPhone('');
+    setQuickClientCity('');
+    setShowQuickClientAdd(false);
+    triggerNotification(`Cliente "${cleanClient.name}" cadastrado!`);
+    onAddLog(`Cliente rápido ${cleanClient.name} cadastrado no dispositivo.`);
   };
 
   // Budget calculations
@@ -2395,12 +2594,22 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   };
 
   // Open modal to attach Wood Cubing / Sawing Services to a specific Client Budget
-  const openAttachWoodModal = (source: 'current_tora' | 'history_toras' | 'block_history') => {
+  const openAttachWoodModal = (source: 'current_tora' | 'history_toras' | 'block_history' | 'current_block') => {
     setAttachTargetSource(source);
     
     if (source === 'block_history') {
       if (blockCalcHistory.length === 0) {
         triggerNotification('Nenhum lote no romaneio de pranchas para enviar!');
+        return;
+      }
+      setAttachPriceM3(blockCalcPrice);
+    } else if (source === 'current_block') {
+      const th = parseFloat(blockCalcThickness) || 0;
+      const wd = parseFloat(blockCalcWidth) || 0;
+      const len = parseFloat(blockCalcLength) || 0;
+      const q = parseInt(blockCalcQty, 10) || 1;
+      if (th <= 0 || wd <= 0 || len <= 0) {
+        triggerNotification('Informe espessura, largura e comprimento válidos para a prancha!');
         return;
       }
       setAttachPriceM3(blockCalcPrice);
@@ -2559,6 +2768,34 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
           length: b.length
         };
       });
+    } else if (attachTargetSource === 'current_block') {
+      const th = parseFloat(blockCalcThickness) || 0;
+      const wd = parseFloat(blockCalcWidth) || 0;
+      const len = parseFloat(blockCalcLength) || 0;
+      const q = parseInt(blockCalcQty, 10) || 1;
+      const volUnit = (th * wd * len) / 10000;
+      const volTotal = volUnit * q;
+      
+      const prodName = isCut
+        ? `Serviço de Desdobro: ${q}x Pranchas (${th}x${wd}cm x ${len}m)`
+        : `Prancha Serrada: ${q}x (${th}x${wd}cm x ${len}m)`;
+      
+      const prodObj: Product = {
+        id: 'prod_blk_' + Date.now(),
+        code: isCut ? 'SRV-BLK' : 'MAD-BLK',
+        name: prodName,
+        price: attachPriceM3,
+        unit: 'M3_BLOCO',
+        description: `${q} pçs (${th}x${wd}cm x ${len}m) = ${volTotal.toFixed(3)} m³ @ R$ ${attachPriceM3.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/m³`
+      };
+
+      newItems.push({
+        product: prodObj,
+        quantity: q,
+        thickness: th,
+        width: wd,
+        length: len
+      });
     }
 
     // 3. Attach into Target Budget
@@ -2664,8 +2901,6 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
   // Export Romaneio de Pranchas em PDF com Extremo Destaque para Metragem e Valor Total
   const handleExportPranchasPDF = () => {
     try {
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      
       const curTh = parseFloat(blockCalcThickness) || 0;
       const curWd = parseFloat(blockCalcWidth) || 0;
       const curLen = parseFloat(blockCalcLength) || 0;
@@ -2675,6 +2910,12 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
       const totalPrice = totalVol * blockCalcPrice;
 
       const hasHistory = blockCalcHistory.length > 0;
+      if (!hasHistory && (curTh <= 0 || curWd <= 0 || curLen <= 0)) {
+        triggerNotification('Preencha as dimensões da madeira ou adicione lotes ao romaneio antes de exportar o orçamento!');
+        return;
+      }
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const exportItems = hasHistory ? blockCalcHistory : [{
         id: 'cur',
         thickness: curTh,
@@ -2694,84 +2935,122 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
       const now = new Date();
       const dateStr = now.toLocaleDateString('pt-BR');
       const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const docNumber = `ROM-PR-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(Date.now()).slice(-4)}`;
+      const clientName = bSelectedClient?.name || bNewClientName || 'Balcão / Cotação de Madeiras';
+      const clientPhone = bSelectedClient?.phone || 'A combinar';
+      const clientCity = bSelectedClient?.city || 'Local';
 
-      // Header Banner (Madeira / Amber escuro)
-      doc.setFillColor(120, 53, 15);
+      // Header Banner (Corporate Dark Amber / Timber Estate)
+      doc.setFillColor(69, 26, 3);
       doc.rect(0, 0, 210, 32, 'F');
 
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(15);
+      doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
-      doc.text('ORÇAFÁCIL PRO - ROMANEIO DE PRANCHAS E BLOCOS', 14, 14);
+      doc.text(companyProfile.companyName || 'ORÇAFÁCIL PRO - MADEIREIRA & DESDOBRO', 14, 12);
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      const companyDoc = companyProfile.cnpj ? `CNPJ: ${companyProfile.cnpj}` : companyProfile.cpf ? `CPF: ${companyProfile.cpf}` : '';
+      const companyPhone = companyProfile.phone ? ` • Tel: ${companyProfile.phone}` : '';
+      const companyResp = companyProfile.ownerName ? ` • Resp: ${companyProfile.ownerName}` : '';
+      doc.text(`${companyDoc}${companyPhone}${companyResp}`.trim() || 'Gestão e Romaneio de Madeira Serrada', 14, 18);
 
       doc.setFontSize(9);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(253, 230, 138);
+      doc.text('ORÇAMENTO & ROMANEIO DE PRANCHAS E BLOCOS (M³ BLOCO)', 14, 25);
+
+      doc.setFontSize(8.5);
       doc.setFont('helvetica', 'normal');
-      doc.text('Memorial Técnico e Romaneio de Madeira Serrada / M³ BLOCO', 14, 21);
-      doc.text(`Emissão: ${dateStr} às ${timeStr} | Documento Oficial de Medição`, 14, 27);
+      doc.setTextColor(254, 243, 199);
+      doc.text(`#${docNumber}`, 196, 12, { align: 'right' });
+      doc.text(`Emissão: ${dateStr} às ${timeStr}`, 196, 18, { align: 'right' });
+      doc.text('Validade: 10 dias úteis', 196, 25, { align: 'right' });
+
+      // Dados do Cliente
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(14, 36, 182, 14, 2, 2, 'FD');
+
+      doc.setTextColor(71, 85, 105);
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DESTINATÁRIO / CLIENTE:', 18, 41);
+
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(9);
+      doc.text(clientName, 18, 46.5);
+
+      doc.setTextColor(100, 116, 139);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Fone: ${clientPhone} | Cidade: ${clientCity}`, 100, 46.5);
 
       // DESTAQUE MÁXIMO PARA METRAGEM E VALOR TOTAL
       // Caixa 1: Metragem Total
       doc.setFillColor(254, 243, 199);
       doc.setDrawColor(217, 119, 6);
       doc.setLineWidth(0.8);
-      doc.roundedRect(14, 38, 88, 30, 3, 3, 'FD');
+      doc.roundedRect(14, 53, 88, 26, 3, 3, 'FD');
 
       doc.setTextColor(146, 64, 14);
-      doc.setFontSize(8.5);
+      doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text('METRAGEM TOTAL CUBADA', 18, 45);
+      doc.text('METRAGEM TOTAL CUBADA (VOLUME)', 18, 59);
 
       doc.setTextColor(120, 53, 15);
-      doc.setFontSize(20);
+      doc.setFontSize(18);
       doc.setFont('helvetica', 'bold');
-      doc.text(`${grandTotalM3.toFixed(3)} m³`, 18, 56);
+      doc.text(`${grandTotalM3.toFixed(3)} m³`, 18, 69);
 
-      doc.setFontSize(8.5);
+      doc.setFontSize(7.5);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(180, 83, 9);
-      doc.text(`${grandTotalPcs} peça(s) no romaneio`, 18, 63);
+      doc.text(`${grandTotalPcs} peça(s) cortada(s) no romaneio`, 18, 75);
 
       // Caixa 2: Valor Total
       doc.setFillColor(236, 253, 245);
       doc.setDrawColor(16, 185, 129);
       doc.setLineWidth(0.8);
-      doc.roundedRect(108, 38, 88, 30, 3, 3, 'FD');
+      doc.roundedRect(108, 53, 88, 26, 3, 3, 'FD');
 
       doc.setTextColor(6, 95, 70);
-      doc.setFontSize(8.5);
+      doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text('VALOR TOTAL ESTIMADO', 112, 45);
+      doc.text('VALOR TOTAL FINAL DO LOTE', 112, 59);
 
       doc.setTextColor(4, 120, 87);
-      doc.setFontSize(20);
+      doc.setFontSize(18);
       doc.setFont('helvetica', 'bold');
-      doc.text(`R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 112, 56);
+      doc.text(`R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 112, 69);
 
-      doc.setFontSize(8.5);
+      doc.setFontSize(7.5);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(5, 150, 105);
-      doc.text(`Preço base de serragem: R$ ${blockCalcPrice}/m³`, 112, 63);
+      doc.text(`Preço base de corte: R$ ${blockCalcPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / m³`, 112, 75);
 
       // Table Header
-      let y = 78;
-      doc.setFillColor(39, 39, 42);
-      doc.rect(14, y, 182, 8, 'F');
+      let y = 84;
+      doc.setFillColor(69, 26, 3);
+      doc.rect(14, y, 182, 7.5, 'F');
 
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text('ITEM', 17, y + 5.5);
-      doc.text('DIMENSÕES (ESP × LARG × COMP)', 35, y + 5.5);
-      doc.text('QTD', 102, y + 5.5);
-      doc.text('VOL. UNIT', 117, y + 5.5);
-      doc.text('VOL. TOTAL', 140, y + 5.5);
-      doc.text('TOTAL (R$)', 168, y + 5.5);
+      doc.text('ITEM', 17, y + 5);
+      doc.text('DIMENSÕES (ESP × LARG × COMP)', 32, y + 5);
+      doc.text('QTD', 105, y + 5);
+      doc.text('VOL. TOTAL', 125, y + 5);
+      doc.text('PREÇO/M³', 152, y + 5);
+      doc.text('TOTAL (R$)', 175, y + 5);
 
-      y += 8;
+      y += 7.5;
 
       // Table Rows
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
+      doc.setFontSize(8);
 
       exportItems.forEach((it, idx) => {
         if (y > 265) {
@@ -2780,29 +3059,36 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
         }
 
         if (idx % 2 === 0) {
-          doc.setFillColor(244, 244, 245);
-          doc.rect(14, y, 182, 7.5, 'F');
+          doc.setFillColor(248, 250, 252);
+          doc.rect(14, y, 182, 7, 'F');
         }
 
-        doc.setTextColor(39, 39, 42);
+        doc.setTextColor(30, 41, 59);
         doc.setFont('helvetica', 'bold');
-        doc.text(`#${idx + 1}`, 17, y + 5);
+        doc.text(`#${idx + 1}`, 17, y + 4.8);
 
         doc.setFont('helvetica', 'normal');
-        doc.text(`${it.thickness}cm × ${it.width}cm × ${it.length}m`, 35, y + 5);
-        doc.text(`${it.qty} pç${it.qty > 1 ? 's' : ''}`, 102, y + 5);
-        doc.text(`${it.volumeUnit.toFixed(3)} m³`, 117, y + 5);
+        doc.text(`Prancha ${it.thickness}cm × ${it.width}cm × ${it.length}m`, 32, y + 4.8);
+
+        doc.setTextColor(100, 116, 139);
+        doc.text(`${it.qty} pç${it.qty > 1 ? 's' : ''}`, 105, y + 4.8);
 
         doc.setFont('helvetica', 'bold');
-        doc.text(`${it.volumeTotal.toFixed(3)} m³`, 140, y + 5);
+        doc.setTextColor(146, 64, 14);
+        doc.text(`${it.volumeTotal.toFixed(3)} m³`, 125, y + 4.8);
 
-        doc.setTextColor(6, 95, 70);
-        doc.text(`R$ ${it.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 168, y + 5);
+        doc.setTextColor(71, 85, 105);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`R$ ${it.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 152, y + 4.8);
 
-        y += 7.5;
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(4, 120, 87);
+        doc.text(`R$ ${it.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 175, y + 4.8);
+
+        y += 7;
       });
 
-      // Total Row
+      // Total Summary Row
       y += 2;
       doc.setFillColor(254, 243, 199);
       doc.setDrawColor(217, 119, 6);
@@ -2811,28 +3097,40 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
 
       doc.setTextColor(120, 53, 15);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text('SOMA GERAL DO ROMANEIO:', 17, y + 6);
-      doc.text(`${grandTotalPcs} pçs`, 102, y + 6);
-      doc.text(`${grandTotalM3.toFixed(3)} m³`, 140, y + 6);
+      doc.setFontSize(8.5);
+      doc.text('TOTAL DO ORÇAMENTO / ROMANEIO:', 17, y + 6);
+      doc.text(`${grandTotalPcs} peças`, 105, y + 6);
+      doc.text(`${grandTotalM3.toFixed(3)} m³`, 125, y + 6);
       doc.setTextColor(4, 120, 87);
-      doc.text(`R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 168, y + 6);
+      doc.text(`R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 175, y + 6);
 
-      // Rodapé
+      // Rodapé Comercial e Assinaturas
       y += 18;
-      if (y > 260) {
+      if (y > 250) {
         doc.addPage();
-        y = 20;
+        y = 25;
       }
-      doc.setTextColor(113, 113, 122);
+      doc.setTextColor(100, 116, 139);
       doc.setFontSize(7.5);
       doc.setFont('helvetica', 'normal');
-      doc.text('Fórmula de Cubagem M³ Bloco: Volume (m³) = (Espessura cm × Largura cm × Comprimento m) / 10.000.', 14, y);
-      doc.text('Documento gerado automaticamente pelo OrçaFácil Pro - Gestão Florestal e Desdobro de Madeiras.', 14, y + 4.5);
+      doc.text('Fórmula M³ Bloco: V (m³) = (Espessura em cm × Largura em cm × Comprimento em m) / 10.000.', 14, y);
+      doc.text('Condições: Madeira serrada sujeita a conferência no carregamento. Documento emitido por OrçaFácil Pro.', 14, y + 4.5);
 
-      const fileName = `Romaneio_Pranchas_${Date.now()}.pdf`;
+      // Signature lines
+      y += 16;
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.4);
+      doc.line(20, y, 85, y);
+      doc.line(125, y, 190, y);
+
+      doc.setFontSize(7);
+      doc.setTextColor(71, 85, 105);
+      doc.text('Responsável Técnico / Madeireira', 52.5, y + 4, { align: 'center' });
+      doc.text('De Acordo do Comprador / Cliente', 157.5, y + 4, { align: 'center' });
+
+      const fileName = `Orcamento_Romaneio_Pranchas_${docNumber}.pdf`;
       doc.save(fileName);
-      triggerNotification('📄 PDF do Romaneio de Pranchas baixado com sucesso!');
+      triggerNotification('📄 Orçamento de Pranchas em PDF baixado com sucesso!');
       onAddLog(`PDF gerado: ${fileName} com ${grandTotalPcs} peças e ${grandTotalM3.toFixed(3)} m³.`);
     } catch (err) {
       console.error('Erro ao gerar PDF de pranchas:', err);
@@ -2840,17 +3138,21 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
     }
   };
 
-  // Export Cubagem de Toras (Huber) em PDF com Extremo Destaque para Metragem e Valor Total
+  // Export Cubagem de Toras (Huber) em PDF no Formato Oficial de Orçamento Comercial
   const handleExportTorasPDF = () => {
     try {
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      
       const d = parseFloat(calcDiameter) || 0;
       const l = parseFloat(calcLength) || 0;
       const curVol = parseCubicMeters(d, l);
       const curVal = Math.round(curVol * calcProductPrice * 100) / 100;
 
       const hasHistory = calcHistory.length > 0;
+      if (!hasHistory && (d <= 0 || l <= 0)) {
+        triggerNotification('Preencha as medidas da tora ou adicione toras ao romaneio antes de exportar o orçamento!');
+        return;
+      }
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       const exportItems = hasHistory ? calcHistory : [{
         id: 'cur-tora',
         diameter: d,
@@ -2867,83 +3169,124 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
       const now = new Date();
       const dateStr = now.toLocaleDateString('pt-BR');
       const timeStr = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      const docNumber = `ORC-CUB-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(Date.now()).slice(-4)}`;
+      const clientName = bSelectedClient?.name || bNewClientName || 'Balcão / Cotação Florestal';
+      const clientPhone = bSelectedClient?.phone || 'A combinar';
+      const clientCity = bSelectedClient?.city || 'Local';
 
-      // Header Banner (Indigo / Toras)
-      doc.setFillColor(49, 46, 129);
+      // Header Banner (Corporate Dark Slate / Forest Indigo)
+      doc.setFillColor(30, 27, 75);
       doc.rect(0, 0, 210, 32, 'F');
 
+      // Company info
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(15);
+      doc.setFontSize(14);
       doc.setFont('helvetica', 'bold');
-      doc.text('ORÇAFÁCIL PRO - CUBAGEM DE TORAS (HUBER)', 14, 14);
+      doc.text(companyProfile.companyName || 'ORÇAFÁCIL PRO - GESTÃO FLORESTAL', 14, 12);
+
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      const companyDoc = companyProfile.cnpj ? `CNPJ: ${companyProfile.cnpj}` : companyProfile.cpf ? `CPF: ${companyProfile.cpf}` : '';
+      const companyPhone = companyProfile.phone ? ` • Tel: ${companyProfile.phone}` : '';
+      const companyResp = companyProfile.ownerName ? ` • Resp: ${companyProfile.ownerName}` : '';
+      doc.text(`${companyDoc}${companyPhone}${companyResp}`.trim() || 'Gestão e Romaneio de Madeiras e Toras', 14, 18);
 
       doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.text('Memorial de Cubagem Volumétrica Florestal | Fórmula Oficial Huber', 14, 21);
-      doc.text(`Emissão: ${dateStr} às ${timeStr} | Documento Oficial de Medição Florestal`, 14, 27);
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(199, 210, 254);
+      doc.text('ORÇAMENTO & MEMORIAL DE CUBAGEM DE TORAS (FÓRMULA HUBER)', 14, 25);
 
-      // DESTAQUE MÁXIMO PARA METRAGEM E VALOR TOTAL
+      // Doc number & date on top right
+      doc.setFontSize(8.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(224, 231, 255);
+      doc.text(`#${docNumber}`, 196, 12, { align: 'right' });
+      doc.text(`Emissão: ${dateStr} às ${timeStr}`, 196, 18, { align: 'right' });
+      doc.text('Validade: 10 dias úteis', 196, 25, { align: 'right' });
+
+      // Dados do Cliente
+      doc.setFillColor(248, 250, 252);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.4);
+      doc.roundedRect(14, 36, 182, 14, 2, 2, 'FD');
+
+      doc.setTextColor(71, 85, 105);
+      doc.setFontSize(7.5);
+      doc.setFont('helvetica', 'bold');
+      doc.text('DESTINATÁRIO / CLIENTE:', 18, 41);
+
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(9);
+      doc.text(clientName, 18, 46.5);
+
+      doc.setTextColor(100, 116, 139);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text(`Fone: ${clientPhone} | Cidade: ${clientCity}`, 100, 46.5);
+
+      // DESTAQUE MÁXIMO PARA METRAGEM E VALOR TOTAL (Como em um Orçamento de Material)
       // Caixa 1: Metragem Total
       doc.setFillColor(238, 242, 255);
       doc.setDrawColor(99, 102, 241);
       doc.setLineWidth(0.8);
-      doc.roundedRect(14, 38, 88, 30, 3, 3, 'FD');
+      doc.roundedRect(14, 53, 88, 26, 3, 3, 'FD');
 
       doc.setTextColor(67, 56, 202);
-      doc.setFontSize(8.5);
+      doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text('METRAGEM TOTAL DE TORAS', 18, 45);
+      doc.text('METRAGEM TOTAL CUBADA (VOLUME)', 18, 59);
 
       doc.setTextColor(49, 46, 129);
-      doc.setFontSize(20);
+      doc.setFontSize(18);
       doc.setFont('helvetica', 'bold');
-      doc.text(`${grandTotalM3.toFixed(3)} m³`, 18, 56);
+      doc.text(`${grandTotalM3.toFixed(3)} m³`, 18, 69);
 
-      doc.setFontSize(8.5);
+      doc.setFontSize(7.5);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(79, 70, 229);
-      doc.text(`${grandTotalToras} tora(s) medidas no romaneio`, 18, 63);
+      doc.text(`${grandTotalToras} tora(s) cortada(s) no romaneio`, 18, 75);
 
-      // Caixa 2: Valor Total
+      // Caixa 2: Valor Total Final
       doc.setFillColor(236, 253, 245);
       doc.setDrawColor(16, 185, 129);
       doc.setLineWidth(0.8);
-      doc.roundedRect(108, 38, 88, 30, 3, 3, 'FD');
+      doc.roundedRect(108, 53, 88, 26, 3, 3, 'FD');
 
       doc.setTextColor(6, 95, 70);
-      doc.setFontSize(8.5);
+      doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text('VALOR TOTAL ESTIMADO', 112, 45);
+      doc.text('VALOR TOTAL FINAL DO LOTE', 112, 59);
 
       doc.setTextColor(4, 120, 87);
-      doc.setFontSize(20);
+      doc.setFontSize(18);
       doc.setFont('helvetica', 'bold');
-      doc.text(`R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 112, 56);
+      doc.text(`R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 112, 69);
 
-      doc.setFontSize(8.5);
+      doc.setFontSize(7.5);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(5, 150, 105);
-      doc.text(`Preço base da tora: R$ ${calcProductPrice}/m³`, 112, 63);
+      doc.text(`Preço base da tora: R$ ${calcProductPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / m³`, 112, 75);
 
       // Table Header
-      let y = 78;
+      let y = 84;
       doc.setFillColor(30, 27, 75);
-      doc.rect(14, y, 182, 8, 'F');
+      doc.rect(14, y, 182, 7.5, 'F');
 
       doc.setTextColor(255, 255, 255);
       doc.setFontSize(8);
       doc.setFont('helvetica', 'bold');
-      doc.text('TORA #', 17, y + 5.5);
-      doc.text('DIÂMETRO NO MEIO (CM)', 40, y + 5.5);
-      doc.text('COMPRIMENTO (M)', 95, y + 5.5);
-      doc.text('VOLUME (M³)', 135, y + 5.5);
-      doc.text('VALOR ESTIMADO (R$)', 165, y + 5.5);
+      doc.text('ITEM', 17, y + 5);
+      doc.text('ESPECIFICAÇÃO DA TORA', 32, y + 5);
+      doc.text('MÉTODO', 98, y + 5);
+      doc.text('VOLUME (M³)', 125, y + 5);
+      doc.text('PREÇO/M³', 152, y + 5);
+      doc.text('TOTAL (R$)', 175, y + 5);
 
-      y += 8;
+      y += 7.5;
 
       // Table Rows
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
+      doc.setFontSize(8);
 
       exportItems.forEach((it, idx) => {
         if (y > 265) {
@@ -2952,29 +3295,36 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
         }
 
         if (idx % 2 === 0) {
-          doc.setFillColor(244, 244, 245);
-          doc.rect(14, y, 182, 7.5, 'F');
+          doc.setFillColor(248, 250, 252);
+          doc.rect(14, y, 182, 7, 'F');
         }
 
-        doc.setTextColor(39, 39, 42);
+        doc.setTextColor(30, 41, 59);
         doc.setFont('helvetica', 'bold');
-        doc.text(`#${idx + 1}`, 17, y + 5);
+        doc.text(`#${idx + 1}`, 17, y + 4.8);
 
         doc.setFont('helvetica', 'normal');
-        doc.text(`Ø ${it.diameter} cm`, 40, y + 5);
-        doc.text(`${it.length} m`, 95, y + 5);
+        doc.text(`Tora Roliça Ø ${it.diameter}cm × ${it.length}m`, 32, y + 4.8);
+
+        doc.setTextColor(100, 116, 139);
+        doc.text('Huber', 98, y + 4.8);
 
         doc.setFont('helvetica', 'bold');
         doc.setTextColor(67, 56, 202);
-        doc.text(`${it.volume.toFixed(3)} m³`, 135, y + 5);
+        doc.text(`${it.volume.toFixed(3)} m³`, 125, y + 4.8);
 
-        doc.setTextColor(6, 95, 70);
-        doc.text(`R$ ${it.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 165, y + 5);
+        doc.setTextColor(71, 85, 105);
+        doc.setFont('helvetica', 'normal');
+        doc.text(`R$ ${it.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 152, y + 4.8);
 
-        y += 7.5;
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(4, 120, 87);
+        doc.text(`R$ ${it.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 175, y + 4.8);
+
+        y += 7;
       });
 
-      // Total Row
+      // Total Summary Row
       y += 2;
       doc.setFillColor(238, 242, 255);
       doc.setDrawColor(99, 102, 241);
@@ -2983,43 +3333,169 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
 
       doc.setTextColor(49, 46, 129);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
-      doc.text('SOMA TOTAL DE TORAS:', 17, y + 6);
-      doc.text(`${grandTotalToras} toras`, 95, y + 6);
-      doc.text(`${grandTotalM3.toFixed(3)} m³`, 135, y + 6);
+      doc.setFontSize(8.5);
+      doc.text('TOTAL DO ORÇAMENTO / ROMANEIO:', 17, y + 6);
+      doc.text(`${grandTotalToras} tora(s)`, 98, y + 6);
+      doc.text(`${grandTotalM3.toFixed(3)} m³`, 125, y + 6);
       doc.setTextColor(4, 120, 87);
-      doc.text(`R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 165, y + 6);
+      doc.text(`R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`, 175, y + 6);
 
-      // Rodapé
+      // Rodapé Comercial e Assinaturas
       y += 18;
-      if (y > 260) {
+      if (y > 250) {
         doc.addPage();
-        y = 20;
+        y = 25;
       }
-      doc.setTextColor(113, 113, 122);
+      doc.setTextColor(100, 116, 139);
       doc.setFontSize(7.5);
       doc.setFont('helvetica', 'normal');
-      doc.text('Fórmula de Huber: Volume (m³) = (π × Diâmetro² em cm × Comprimento em metros) / 40.000.', 14, y);
-      doc.text('Documento gerado automaticamente pelo OrçaFácil Pro - Gestão Florestal e Cubagem de Toras.', 14, y + 4.5);
+      doc.text('Fórmula Oficial de Huber: V (m³) = (π × Diâmetro no meio² em cm × Comprimento em metros) / 40.000.', 14, y);
+      doc.text('Condições: Medição no pátio sujeito a conferência no carregamento. Documento emitido por OrçaFácil Pro.', 14, y + 4.5);
 
-      const fileName = `Cubagem_Toras_Huber_${Date.now()}.pdf`;
+      // Signature lines
+      y += 16;
+      doc.setDrawColor(203, 213, 225);
+      doc.setLineWidth(0.4);
+      doc.line(20, y, 85, y);
+      doc.line(125, y, 190, y);
+
+      doc.setFontSize(7);
+      doc.setTextColor(71, 85, 105);
+      doc.text('Responsável Técnico / Madeireira', 52.5, y + 4, { align: 'center' });
+      doc.text('De Acordo do Comprador / Cliente', 157.5, y + 4, { align: 'center' });
+
+      const fileName = `Orcamento_Cubagem_Toras_${docNumber}.pdf`;
       doc.save(fileName);
-      triggerNotification('📄 PDF de Cubagem de Toras baixado com sucesso!');
-      onAddLog(`PDF gerado: ${fileName} com ${grandTotalToras} toras e ${grandTotalM3.toFixed(3)} m³.`);
+      triggerNotification('📄 Orçamento de Cubagem em PDF baixado com sucesso!');
+      onAddLog(`Orçamento de cubagem gerado: ${fileName} com ${grandTotalToras} toras e ${grandTotalM3.toFixed(3)} m³.`);
     } catch (err) {
       console.error('Erro ao gerar PDF de toras:', err);
       triggerNotification('Erro ao gerar PDF de toras.');
     }
   };
 
-  // Export Romaneio de Pranchas em PNG de Alta Resolução
+  // Export Romaneio de Pranchas em PNG de Alta Resolução (Orçamento Limpo)
   const handleExportPranchasPNG = async () => {
-    await handleExportAsImage('pranchas-calculator-export-card', '#0a0a0a');
+    const curTh = parseFloat(blockCalcThickness) || 0;
+    const curWd = parseFloat(blockCalcWidth) || 0;
+    const curLen = parseFloat(blockCalcLength) || 0;
+    if (blockCalcHistory.length === 0 && (curTh <= 0 || curWd <= 0 || curLen <= 0)) {
+      triggerNotification('Preencha as dimensões da madeira ou adicione lotes ao romaneio antes de exportar em PNG!');
+      return;
+    }
+    await handleExportAsImage('pranchas-quotation-invoice-card', '#ffffff');
   };
 
-  // Export Cubagem de Toras em PNG de Alta Resolução
+  // Export Cubagem de Toras em PNG de Alta Resolução (Orçamento Limpo)
   const handleExportTorasPNG = async () => {
-    await handleExportAsImage('toras-calculator-export-card', '#0a0a0a');
+    const d = parseFloat(calcDiameter) || 0;
+    const l = parseFloat(calcLength) || 0;
+    if (calcHistory.length === 0 && (d <= 0 || l <= 0)) {
+      triggerNotification('Preencha as medidas da tora ou adicione toras ao romaneio antes de exportar em PNG!');
+      return;
+    }
+    await handleExportAsImage('toras-quotation-invoice-card', '#ffffff');
+  };
+
+  // Copiar resumo de Toras para WhatsApp
+  const handleCopyTorasWhatsApp = () => {
+    const d = parseFloat(calcDiameter) || 0;
+    const l = parseFloat(calcLength) || 0;
+    if (calcHistory.length === 0 && (d <= 0 || l <= 0)) {
+      triggerNotification('Preencha as medidas da tora ou adicione itens ao romaneio para copiar o orçamento!');
+      return;
+    }
+    const curVol = parseCubicMeters(d, l);
+    const curVal = Math.round(curVol * calcProductPrice * 100) / 100;
+    const exportItems = calcHistory.length > 0 ? calcHistory : [{
+      id: 'cur-tora',
+      diameter: d,
+      length: l,
+      volume: curVol,
+      price: calcProductPrice,
+      value: curVal
+    }];
+
+    const grandTotalToras = exportItems.length;
+    const grandTotalM3 = exportItems.reduce((acc, it) => acc + it.volume, 0);
+    const grandTotalReais = exportItems.reduce((acc, it) => acc + it.value, 0);
+    const clientName = bSelectedClient?.name || bNewClientName || 'Balcão / Cotação Florestal';
+
+    let msg = `*📄 ORÇAMENTO & CUBAGEM DE TORAS (HUBER)*\n`;
+    msg += `*${companyProfile.companyName || 'OrçaFácil Pro'}*\n`;
+    if (companyProfile.phone) msg += `📞 Contato: ${companyProfile.phone}\n`;
+    msg += `--------------------------------\n`;
+    msg += `👤 *Cliente:* ${clientName}\n`;
+    msg += `📅 *Emissão:* ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n`;
+    msg += `⏳ *Validade:* 10 dias úteis\n`;
+    msg += `--------------------------------\n`;
+    msg += `*HISTÓRICO DE TORAS CORTADAS:*\n`;
+    exportItems.forEach((it, idx) => {
+      msg += `*#${idx + 1} Tora Roliça* Ø${it.diameter}cm × ${it.length}m\n`;
+      msg += `   Volume: *${it.volume.toFixed(3)} m³* | Valor: *R$ ${it.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}*\n`;
+    });
+    msg += `--------------------------------\n`;
+    msg += `🪵 *TOTAL DE TORAS:* ${grandTotalToras} tora(s)\n`;
+    msg += `📐 *METRAGEM TOTAL CUBADA:* *${grandTotalM3.toFixed(3)} m³*\n`;
+    msg += `💵 *VALOR TOTAL FINAL:* *R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}*\n`;
+    msg += `_Preço base: R$ ${calcProductPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/m³_\n`;
+    msg += `_Fórmula Oficial de Huber: V = (π × D² × L) / 40.000._\n`;
+
+    copyToClipboard(msg);
+  };
+
+  // Copiar resumo de Pranchas para WhatsApp
+  const handleCopyPranchasWhatsApp = () => {
+    const curTh = parseFloat(blockCalcThickness) || 0;
+    const curWd = parseFloat(blockCalcWidth) || 0;
+    const curLen = parseFloat(blockCalcLength) || 0;
+    const curQty = parseInt(blockCalcQty, 10) || 1;
+    if (blockCalcHistory.length === 0 && (curTh <= 0 || curWd <= 0 || curLen <= 0)) {
+      triggerNotification('Preencha as dimensões da madeira ou adicione lotes ao romaneio para copiar o orçamento!');
+      return;
+    }
+    const unitVol = (curTh * curWd * curLen) / 10000;
+    const totalVol = unitVol * curQty;
+    const totalPrice = totalVol * blockCalcPrice;
+
+    const exportItems = blockCalcHistory.length > 0 ? blockCalcHistory : [{
+      id: 'cur',
+      thickness: curTh,
+      width: curWd,
+      length: curLen,
+      qty: curQty,
+      volumeUnit: unitVol,
+      volumeTotal: totalVol,
+      price: blockCalcPrice,
+      value: totalPrice
+    }];
+
+    const grandTotalPcs = exportItems.reduce((acc, it) => acc + it.qty, 0);
+    const grandTotalM3 = exportItems.reduce((acc, it) => acc + it.volumeTotal, 0);
+    const grandTotalReais = exportItems.reduce((acc, it) => acc + it.value, 0);
+    const clientName = bSelectedClient?.name || bNewClientName || 'Balcão / Cotação Florestal';
+
+    let msg = `*📄 ORÇAMENTO & ROMANEIO DE PRANCHAS (M³ BLOCO)*\n`;
+    msg += `*${companyProfile.companyName || 'OrçaFácil Pro'}*\n`;
+    if (companyProfile.phone) msg += `📞 Contato: ${companyProfile.phone}\n`;
+    msg += `--------------------------------\n`;
+    msg += `👤 *Cliente:* ${clientName}\n`;
+    msg += `📅 *Emissão:* ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}\n`;
+    msg += `⏳ *Validade:* 10 dias úteis\n`;
+    msg += `--------------------------------\n`;
+    msg += `*HISTÓRICO DE PRANCHAS / BLOCOS:*\n`;
+    exportItems.forEach((it, idx) => {
+      msg += `*#${idx + 1} Prancha:* ${it.thickness}cm × ${it.width}cm × ${it.length}m (${it.qty} pçs)\n`;
+      msg += `   Volume: *${it.volumeTotal.toFixed(3)} m³* | Total: *R$ ${it.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}*\n`;
+    });
+    msg += `--------------------------------\n`;
+    msg += `🪵 *TOTAL DE PEÇAS:* ${grandTotalPcs} peça(s)\n`;
+    msg += `📐 *METRAGEM TOTAL CUBADA:* *${grandTotalM3.toFixed(3)} m³*\n`;
+    msg += `💵 *VALOR TOTAL FINAL:* *R$ ${grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}*\n`;
+    msg += `_Preço base: R$ ${blockCalcPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/m³_\n`;
+    msg += `_Fórmula M³ Bloco: V = (Espessura cm × Largura cm × Comprimento m) / 10.000._\n`;
+
+    copyToClipboard(msg);
   };
 
   const renderBlockCalculatorUI = () => {
@@ -3041,24 +3517,36 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
 
     return (
       <div id="pranchas-calculator-export-card" className="bg-gradient-to-br from-amber-950/40 via-neutral-950 to-neutral-950 p-4 sm:p-6 rounded-2xl border border-amber-900/50 flex flex-col gap-5 shadow-2xl">
-        {/* Header Title */}
-        <div className="flex justify-between items-center pb-3 border-b border-amber-900/40">
+        {/* Header Title com botão de Zerar Medidas */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-amber-900/40">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+            <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 shrink-0">
               <Box className="w-6 h-6 stroke-[2.2]" />
             </div>
             <div>
-              <span className="text-sm sm:text-base uppercase tracking-wider text-amber-400 font-black font-sans block">
-                Calculadora & Romaneio de Pranchas
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm sm:text-base uppercase tracking-wider text-amber-400 font-black font-sans block">
+                  Calculadora & Romaneio de Pranchas
+                </span>
+                <span className="text-[10px] bg-amber-900/80 text-amber-200 px-2.5 py-0.5 rounded-lg border border-amber-600/50 font-mono font-black uppercase">
+                  M³ BLOCO
+                </span>
+              </div>
               <span className="text-xs text-zinc-300 font-medium block mt-0.5">
                 Desdobro de Toras / Pranchas Serradas / Blocos Retangulares
               </span>
             </div>
           </div>
-          <span className="text-xs bg-amber-900/80 text-amber-200 px-3 py-1 rounded-xl border border-amber-600/50 font-mono font-black uppercase">
-            M³ BLOCO
-          </span>
+          
+          <button
+            type="button"
+            onClick={resetPranchasCalculator}
+            className="self-start sm:self-center bg-neutral-900 hover:bg-neutral-800 text-amber-400 hover:text-amber-300 border border-amber-500/40 hover:border-amber-400 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer select-none shadow-sm"
+            title="Limpar todos os campos e zerar as medidas da prancha"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Zerar Medidas</span>
+          </button>
         </div>
 
         {/* STEP 1: Medidas */}
@@ -3079,7 +3567,7 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
               <div className="flex items-center gap-2">
                 <button 
                   type="button"
-                  onClick={() => setBlockCalcThickness(String(Math.max(1, curTh - 1)))}
+                  onClick={() => setBlockCalcThickness(String(Math.max(1, (parseFloat(blockCalcThickness) || 1) - 1)))}
                   className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
                 >
                   -
@@ -3088,11 +3576,12 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
                   type="number" 
                   value={blockCalcThickness} 
                   onChange={(e) => setBlockCalcThickness(e.target.value)}
+                  placeholder="Ex: 15"
                   className="w-full bg-neutral-950 border border-neutral-700 rounded-xl py-3 text-center font-mono text-lg text-amber-400 outline-none font-extrabold focus:border-amber-500"
                 />
                 <button 
                   type="button"
-                  onClick={() => setBlockCalcThickness(String(curTh + 1))}
+                  onClick={() => setBlockCalcThickness(String((parseFloat(blockCalcThickness) || 0) + 1))}
                   className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
                 >
                   +
@@ -3121,7 +3610,7 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
               <div className="flex items-center gap-2">
                 <button 
                   type="button"
-                  onClick={() => setBlockCalcWidth(String(Math.max(1, curWd - 2)))}
+                  onClick={() => setBlockCalcWidth(String(Math.max(2, (parseFloat(blockCalcWidth) || 2) - 2)))}
                   className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
                 >
                   -
@@ -3130,11 +3619,12 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
                   type="number" 
                   value={blockCalcWidth} 
                   onChange={(e) => setBlockCalcWidth(e.target.value)}
+                  placeholder="Ex: 25"
                   className="w-full bg-neutral-950 border border-neutral-700 rounded-xl py-3 text-center font-mono text-lg text-amber-400 outline-none font-extrabold focus:border-amber-500"
                 />
                 <button 
                   type="button"
-                  onClick={() => setBlockCalcWidth(String(curWd + 2))}
+                  onClick={() => setBlockCalcWidth(String((parseFloat(blockCalcWidth) || 0) + 2))}
                   className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
                 >
                   +
@@ -3163,7 +3653,7 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
               <div className="flex items-center gap-2">
                 <button 
                   type="button"
-                  onClick={() => setBlockCalcLength(String(Math.max(0.5, parseFloat((curLen - 0.5).toFixed(1)))))}
+                  onClick={() => setBlockCalcLength(String(Math.max(0.5, parseFloat(((parseFloat(blockCalcLength) || 0.5) - 0.5).toFixed(1)))))}
                   className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
                 >
                   -
@@ -3173,11 +3663,12 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
                   step="0.1"
                   value={blockCalcLength} 
                   onChange={(e) => setBlockCalcLength(e.target.value)}
+                  placeholder="Ex: 3.0"
                   className="w-full bg-neutral-950 border border-neutral-700 rounded-xl py-3 text-center font-mono text-lg text-amber-400 outline-none font-extrabold focus:border-amber-500"
                 />
                 <button 
                   type="button"
-                  onClick={() => setBlockCalcLength(String(parseFloat((curLen + 0.5).toFixed(1))))}
+                  onClick={() => setBlockCalcLength(String(parseFloat(((parseFloat(blockCalcLength) || 0) + 0.5).toFixed(1))))}
                   className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
                 >
                   +
@@ -3206,7 +3697,7 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
               <div className="flex items-center gap-2">
                 <button 
                   type="button"
-                  onClick={() => setBlockCalcQty(String(Math.max(1, curQty - 1)))}
+                  onClick={() => setBlockCalcQty(String(Math.max(1, (parseInt(blockCalcQty, 10) || 1) - 1)))}
                   className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
                 >
                   -
@@ -3215,11 +3706,12 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
                   type="number" 
                   value={blockCalcQty} 
                   onChange={(e) => setBlockCalcQty(e.target.value)}
+                  placeholder="Ex: 1"
                   className="w-full bg-neutral-950 border border-neutral-700 rounded-xl py-3 text-center font-mono text-lg text-amber-400 outline-none font-extrabold focus:border-amber-500"
                 />
                 <button 
                   type="button"
-                  onClick={() => setBlockCalcQty(String(curQty + 1))}
+                  onClick={() => setBlockCalcQty(String((parseInt(blockCalcQty, 10) || 0) + 1))}
                   className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
                 >
                   +
@@ -3268,9 +3760,9 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
               </div>
             </div>
 
-            {/* PAINEL DE DESTAQUE MÁXIMO: METRAGEM TOTAL E VALOR TOTAL */}
+            {/* PAINEL DE DESTAQUE: METRAGEM TOTAL E VALOR TOTAL */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 p-1">
-              {/* Caixa 1: Metragem Total com Extremo Destaque */}
+              {/* Metragem Total */}
               <div className="bg-gradient-to-b from-amber-950/80 via-neutral-900 to-neutral-950 border-2 border-amber-500/90 p-4 sm:p-5 rounded-2xl shadow-2xl flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between gap-2">
@@ -3282,7 +3774,9 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
                     </span>
                   </div>
                   <span className="text-xs text-zinc-300 font-medium block mt-1">
-                    {curQty} peça{curQty > 1 ? 's' : ''} ({unitVol.toFixed(3)} m³/peça)
+                    {totalVol > 0 
+                      ? `${curQty} peça${curQty > 1 ? 's' : ''} (${unitVol.toFixed(3)} m³/peça)` 
+                      : 'Aguardando dimensões da peça'}
                   </span>
                 </div>
                 <div className="mt-3">
@@ -3290,12 +3784,14 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
                     {totalVol.toFixed(3)} m³
                   </strong>
                   <span className="text-xs text-amber-200/90 font-mono font-bold block mt-1.5">
-                    {curTh}cm (esp) × {curWd}cm (larg) × {curLen}m (comp)
+                    {totalVol > 0 
+                      ? `${curTh}cm (esp) × ${curWd}cm (larg) × ${curLen}m (comp)` 
+                      : 'Preencha espessura, largura e comprimento'}
                   </span>
                 </div>
               </div>
 
-              {/* Caixa 2: Valor Total com Extremo Destaque */}
+              {/* Valor Total */}
               <div className="bg-gradient-to-b from-emerald-950/80 via-neutral-900 to-neutral-950 border-2 border-emerald-500/90 p-4 sm:p-5 rounded-2xl shadow-2xl flex flex-col justify-between">
                 <div>
                   <div className="flex items-center justify-between gap-2">
@@ -3315,7 +3811,9 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
                     R$ {totalPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </span>
                   <span className="text-xs text-emerald-300/90 font-mono font-bold block mt-1.5">
-                    R$ {(unitVol * blockCalcPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} por peça
+                    {totalVol > 0 
+                      ? `R$ ${(unitVol * blockCalcPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} por peça` 
+                      : 'Calculado automaticamente conforme metragem'}
                   </span>
                 </div>
               </div>
@@ -3323,53 +3821,115 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
           </div>
         </div>
 
-        {/* STEP 3: Botões de Ação e Exportação Individual */}
+        {/* STEP 3: AÇÕES DO LOTE ATUAL (Posicionamento Ergonômico de Alta Precisão) */}
         <div className="space-y-3">
-          <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-amber-500 text-neutral-950 font-black text-xs flex items-center justify-center">3</span>
+            <span className="text-xs sm:text-sm font-extrabold uppercase text-amber-300 tracking-wide">
+              Ações do Lote Atual
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {/* Ação 1: Adicionar ao Romaneio */}
             <button
               type="button"
               onClick={addBlockToHistory}
-              className="flex-1 bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black py-4 px-5 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer border border-amber-400 shadow-lg shadow-amber-950/40"
+              className="bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer border border-amber-400 shadow-lg shadow-amber-950/40 select-none"
             >
-              <span>➕ Guardar Lote no Romaneio</span>
-              <span className="font-mono bg-amber-950 text-amber-200 text-xs px-2 py-0.5 rounded-md">({curQty} pçs)</span>
+              <PlusCircle className="w-4 h-4 stroke-[2.5]" />
+              <span>Guardar no Romaneio</span>
+              {curQty > 0 && totalVol > 0 && (
+                <span className="font-mono bg-amber-950 text-amber-200 text-xs px-2 py-0.5 rounded-md">({curQty} pçs)</span>
+              )}
             </button>
-            {blockCalcHistory.length > 0 && (
-              <button
-                type="button"
-                onClick={clearBlockHistory}
-                className="bg-neutral-900 border border-neutral-700 hover:bg-red-950/50 hover:text-red-300 text-zinc-300 font-extrabold px-5 py-4 rounded-xl text-xs sm:text-sm cursor-pointer transition-all active:scale-[0.98] flex items-center justify-center gap-1.5"
-                title="Limpar todos os lotes do romaneio"
-              >
-                🗑️ Limpar Romaneio
-              </button>
-            )}
-          </div>
 
-          {/* Individual Export Buttons for Pranchas Romaneio */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+            {/* Ação 2: Embutir no Orçamento do Cliente */}
             <button
               type="button"
-              onClick={handleExportPranchasPDF}
-              className="bg-neutral-900 hover:bg-neutral-850 text-amber-300 border-2 border-amber-600/60 hover:border-amber-500 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-lg"
-              title="Exportar Romaneio de Pranchas em PDF com metragem e valor total destacados"
+              onClick={() => openAttachWoodModal('current_block')}
+              className="bg-neutral-900 hover:bg-neutral-850 text-amber-300 border-2 border-amber-500/60 hover:border-amber-400 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer select-none shadow-md"
+              title="Vincular e transferir esta prancha direto para o orçamento do cliente"
             >
-              <FileDown className="w-4 h-4 text-amber-400 stroke-[2.5]" />
-              <span>📄 Exportar Romaneio (PDF)</span>
+              <Receipt className="w-4 h-4 text-amber-400 stroke-[2.5]" />
+              <span>Embutir no Orçamento</span>
             </button>
+
+            {/* Ação 3: Zerar Medidas */}
             <button
               type="button"
-              onClick={handleExportPranchasPNG}
-              className="bg-neutral-900 hover:bg-neutral-850 text-emerald-300 border-2 border-emerald-600/60 hover:border-emerald-500 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-lg"
-              title="Exportar Romaneio de Pranchas em Imagem PNG de alta definição"
+              onClick={resetPranchasCalculator}
+              className="bg-neutral-900 hover:bg-neutral-800 text-zinc-300 hover:text-white border border-neutral-700 font-extrabold py-3.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer select-none"
+              title="Limpar campos e zerar dimensões da peça"
             >
-              <Share2 className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
-              <span>📸 Exportar Romaneio (PNG)</span>
+              <RotateCcw className="w-4 h-4" />
+              <span>Zerar Medidas</span>
             </button>
           </div>
         </div>
 
-        {/* Romaneio Table / Saved Items List (NO inner scroll trap!) */}
+        {/* STEP 4: DOCUMENTO COMERCIAL & EXPORTAÇÃO DO ORÇAMENTO (Alinhamento Perfeito) */}
+        <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 space-y-3 shadow-md">
+          <div className="flex items-center justify-between pb-2 border-b border-neutral-850">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4 text-amber-400" />
+              <span className="text-xs font-black uppercase text-amber-300 tracking-wider">
+                Orçamento Comercial & Exportação
+              </span>
+            </div>
+            <span className="text-[11px] text-zinc-400 font-medium hidden sm:inline-block">
+              Romaneio limpo com histórico, m³ e valor final
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {/* 1. Ver Orçamento */}
+            <button
+              type="button"
+              onClick={() => setShowPranchasQuoteModal(true)}
+              className="bg-neutral-900 hover:bg-neutral-850 text-amber-300 border border-amber-600/50 hover:border-amber-400 font-black py-3 px-3 rounded-xl text-xs uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+              title="Visualizar documento oficial de orçamento de pranchas"
+            >
+              <Eye className="w-4 h-4 stroke-[2.5]" />
+              <span>Ver Orçamento</span>
+            </button>
+
+            {/* 2. Baixar PDF */}
+            <button
+              type="button"
+              onClick={handleExportPranchasPDF}
+              className="bg-neutral-900 hover:bg-neutral-850 text-amber-300 border border-amber-600/50 hover:border-amber-400 font-black py-3 px-3 rounded-xl text-xs uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+              title="Baixar documento de orçamento em PDF formatado"
+            >
+              <FileDown className="w-4 h-4 text-amber-400 stroke-[2.5]" />
+              <span>Orçamento (PDF)</span>
+            </button>
+
+            {/* 3. Baixar PNG */}
+            <button
+              type="button"
+              onClick={handleExportPranchasPNG}
+              className="bg-neutral-900 hover:bg-neutral-850 text-emerald-300 border border-emerald-600/50 hover:border-emerald-400 font-black py-3 px-3 rounded-xl text-xs uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+              title="Exportar imagem nítida em PNG do orçamento limpo"
+            >
+              <Share2 className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
+              <span>Orçamento (PNG)</span>
+            </button>
+
+            {/* 4. WhatsApp */}
+            <button
+              type="button"
+              onClick={handleCopyPranchasWhatsApp}
+              className="bg-neutral-900 hover:bg-neutral-850 text-emerald-300 border border-emerald-600/50 hover:border-emerald-400 font-black py-3 px-3 rounded-xl text-xs uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+              title="Copiar orçamento com formatação profissional para o WhatsApp"
+            >
+              <MessageCircle className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
+              <span>WhatsApp</span>
+            </button>
+          </div>
+        </div>
+
+        {/* STEP 5: ROMANEIO SALVO (HISTÓRICO DE PRANCHAS CORTADAS) */}
         {blockCalcHistory.length > 0 && (
           <div className="bg-neutral-950 p-4 sm:p-5 rounded-2xl border border-amber-900/50 font-sans space-y-4 shadow-xl">
             <div className="flex justify-between items-center pb-3 border-b border-amber-900/40">
@@ -3389,7 +3949,7 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
               </div>
             </div>
 
-            {/* Render items naturally in standard layout (NO max-h overflow-y-auto!) */}
+            {/* Itens do Romaneio */}
             <div className="space-y-2.5">
               {visibleBlockHistory.map((item, index) => (
                 <div key={item.id} className="flex justify-between items-center text-xs sm:text-sm bg-neutral-900 p-3.5 rounded-xl border border-neutral-800 font-mono shadow-sm hover:border-amber-900/50 transition-colors">
@@ -3438,15 +3998,26 @@ export default function MainApp({ onAddLog = () => {} }: MainAppProps = {}) {
               </button>
             )}
 
-            {/* Injetar no Orçamento do Cliente button */}
-            <button
-              type="button"
-              onClick={() => openAttachWoodModal('block_history')}
-              className="w-full bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black py-4 px-5 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-amber-950/30 active:scale-[0.98] mt-2"
-            >
-              <Receipt className="w-5 h-5 stroke-[2.5]" />
-              <span>📥 Transferir Romaneio para o Orçamento do Cliente</span>
-            </button>
+            {/* Barra de Ações em Lote do Romaneio */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-amber-900/40">
+              <button
+                type="button"
+                onClick={() => openAttachWoodModal('block_history')}
+                className="sm:col-span-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-neutral-950 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-lg shadow-amber-950/30 active:scale-[0.98]"
+              >
+                <Receipt className="w-4 h-4 stroke-[2.5]" />
+                <span>📥 Transferir Romaneio Completo para o Orçamento</span>
+              </button>
+              <button
+                type="button"
+                onClick={clearBlockHistory}
+                className="bg-neutral-900 hover:bg-rose-950/50 hover:text-rose-300 text-zinc-400 hover:border-rose-800/60 border border-neutral-700 font-bold py-3.5 px-3 rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-[0.98]"
+                title="Limpar todos os lotes deste romaneio"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Limpar Romaneio</span>
+              </button>
+            </div>
           </div>
         )}
       </div>
@@ -4997,11 +5568,25 @@ ${itemRows}
     onAddLog(`Disparada consulta diagnóstica de verificação do SQLite embarcado: Table - ${tblName}`);
   };
 
-  // Filter products by query
-  const filteredProducts = products.filter(p => 
-    p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    p.code.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  // Filter products by query and category
+  const filteredProducts = products.filter(p => {
+    const matchSearch = p.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
+      p.code.toLowerCase().includes(searchQuery.toLowerCase());
+    if (!matchSearch) return false;
+    if (catalogCategoryFilter === 'tabuas') {
+      return p.unit === 'TABUA' || p.unit === 'PRANCHA' || /tabua|prancha/i.test(p.name);
+    }
+    if (catalogCategoryFilter === 'toras') {
+      return p.unit === 'M3' || /tora/i.test(p.name);
+    }
+    if (catalogCategoryFilter === 'vigas') {
+      return p.unit === 'M' || /viga|caibro|ripa|ripao|pilar|regua|mourão/i.test(p.name);
+    }
+    if (catalogCategoryFilter === 'servicos') {
+      return !['TABUA', 'PRANCHA', 'M3', 'M'].includes(p.unit) || /corte|aplainar|desdobro|frete|servico|diaria|hora/i.test(p.name);
+    }
+    return true;
+  });
 
   return (
     <div className="w-full h-screen bg-neutral-900 text-neutral-100 flex flex-col font-sans relative text-sm overflow-hidden">
@@ -5052,7 +5637,7 @@ ${itemRows}
                 </AnimatePresence>
               </div>
               
-              <span className="text-[9px] text-zinc-600 font-mono mt-16">Versão Nativa v1.1.0 (Capacitor Android)</span>
+              <span className="text-[9px] text-zinc-600 font-mono mt-16">Versão Nativa v1.02 (Capacitor Android)</span>
             </div>
           </motion.div>
         )}
@@ -5105,17 +5690,26 @@ ${itemRows}
           </button>
 
           <button 
-            onClick={() => { 
-              const next = !seniorMode;
-              setSeniorMode(next);
-              onAddLog(`Interface alterada: ${next ? 'Modo Fácil Ativado. Fonte grande e layouts limpos.' : 'Modo Comercial Completo Ativado.'}`);
-              triggerNotification(next ? '✨ Modo Fácil Ativo' : '⚙️ Modo Completo Ativo');
-            }}
-            className={`px-2 md:px-2.5 py-1.5 rounded-lg border text-[11px] font-black tracking-tight flex items-center gap-1 select-none transition-all cursor-pointer ${seniorMode ? 'bg-amber-500 text-neutral-950 border-amber-400 font-extrabold' : 'bg-neutral-950 text-zinc-400 border-neutral-800 hover:bg-neutral-850'}`}
-            title="Mudar Mode de Interface"
+            type="button"
+            onClick={() => setShowModeModal(true)}
+            className={`px-2 md:px-2.5 py-1.5 rounded-lg border text-[11px] font-black tracking-tight flex items-center gap-1.5 select-none transition-all cursor-pointer shadow-sm ${
+              seniorMode 
+                ? 'bg-amber-500 text-neutral-950 border-amber-400 font-black hover:bg-amber-400' 
+                : 'bg-indigo-600 text-white border-indigo-500 font-black hover:bg-indigo-500'
+            }`}
+            title="Escolher Modo (Fácil ou Completo / Serraria Pro)"
           >
-            <Zap className="w-3 h-3 md:w-3.5 md:h-3.5 shrink-0" />
-            <span>{seniorMode ? 'Modo Fácil' : 'Modo Completo'}</span>
+            {seniorMode ? (
+              <>
+                <Zap className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
+                <span>Modo Fácil</span>
+              </>
+            ) : (
+              <>
+                <Factory className="w-3.5 h-3.5 shrink-0 stroke-[2.5]" />
+                <span>Modo Completo</span>
+              </>
+            )}
           </button>
           <button 
             onClick={() => { setShowAdmin(!showAdmin); setIsCreatingBudget(false); setViewingBudget(null); setSelectedClient(null); }}
@@ -5297,7 +5891,7 @@ ${itemRows}
                 <div className="bg-neutral-950 p-3 rounded-lg border border-neutral-800 text-zinc-400 space-y-1">
                   <span className="text-amber-500 font-bold text-xs flex items-center gap-1">
                     <Zap className="w-4 h-4" />
-                    Console de Teste de Estresse V1.1.0
+                    Console de Teste de Estresse V1.02
                   </span>
                   <p className="text-[10px] leading-relaxed text-zinc-500">
                     Defina cenários reais de sobrecarga para avaliar limites de processamento, integridade e resiliência offline do núcleo do aplicativo móvel.
@@ -5632,25 +6226,29 @@ ${itemRows}
                     </p>
                   </div>
 
-                  {/* Toggle Senior Mode */}
-                  <div className="space-y-1.5 pt-3 border-t border-neutral-800">
+                  {/* Modo de Operação: Fácil vs Completo */}
+                  <div className="space-y-2 pt-3 border-t border-neutral-800">
                     <div className="flex justify-between items-center">
-                      <span className="text-xs font-bold text-zinc-305">Acessibilidade (Modo Fácil)</span>
+                      <div>
+                        <span className="text-xs font-bold text-zinc-200 block">Modo de Operação do Aplicativo</span>
+                        <span className="text-[10px] text-zinc-400">
+                          {seniorMode ? '⚡ Modo Fácil (Campo & Letras Grandes)' : '🏭 Modo Completo (Serraria Pro & Gestão)'}
+                        </span>
+                      </div>
                       <button
                         type="button"
-                        onClick={() => {
-                          const next = !seniorMode;
-                          setSeniorMode(next);
-                          onAddLog(`Interface alterada via preferências: ${next ? 'Modo Fácil' : 'Modo Completo'}`);
-                          triggerNotification(next ? '✨ Modo Fácil Ativo' : '⚙️ Modo Completo Ativo');
-                        }}
-                        className={`w-10 h-5.5 rounded-full p-0.5 transition-colors cursor-pointer select-none ${seniorMode ? 'bg-amber-500' : 'bg-neutral-800'}`}
+                        onClick={() => setShowModeModal(true)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-black cursor-pointer select-none transition-all border ${
+                          seniorMode 
+                            ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 hover:bg-amber-500/30' 
+                            : 'bg-indigo-600/20 text-indigo-400 border-indigo-500/40 hover:bg-indigo-600/30'
+                        }`}
                       >
-                        <div className={`w-4.5 h-4.5 bg-neutral-950 rounded-full shadow-md transition-transform ${seniorMode ? 'translate-x-4.5' : 'translate-x-0'}`} />
+                        Alterar Modo...
                       </button>
                     </div>
                     <p className="text-[10px] text-zinc-500 leading-normal">
-                      Ativa fontes maiores e atalhos simplificados, ideal para facilitar o uso no cotidiano.
+                      O Modo Fácil é focado em 3 passos grandes e orçamentos diretos. O Modo Completo habilita DRE de faturamento, rendimento de desdobro de toras, lotes com DOF e formação de preço com markup.
                     </p>
                   </div>
                 </div>
@@ -5924,131 +6522,83 @@ ${itemRows}
                     <span className="text-amber-500 font-black text-sm">► VER</span>
                   </button>
                 </div>
+
+                {/* Lista de Orçamentos Recentes (Modo Fácil) */}
+                <div className="flex flex-col gap-2 mt-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-zinc-200 font-black text-sm">Últimos Orçamentos</span>
+                    <span className="text-xs text-amber-500 cursor-pointer hover:underline font-bold" onClick={() => setActiveTab('budgets')}>Ver todos ({budgets.length})</span>
+                  </div>
+
+                  <div className="space-y-2 pr-0.5">
+                    {budgets.length === 0 ? (
+                      <div className="flex-1 h-full min-h-[120px] flex flex-col items-center justify-center p-6 text-center border border-dashed border-neutral-800 rounded-xl bg-neutral-950/30">
+                        <span className="text-3xl mb-1.5 animate-pulse">📋</span>
+                        <span className="text-xs font-bold text-zinc-300 block">Nenhum Orçamento Salvo</span>
+                        <p className="text-[10px] text-zinc-500 mt-1 max-w-[210px] leading-relaxed">Crie orçamentos offline. Os dados ficam salvos de forma segura no aparelho local.</p>
+                      </div>
+                    ) : (
+                      budgets.map(b => (
+                        <div 
+                          key={b.id} 
+                          onClick={() => setViewingBudget(b)}
+                          className="bg-neutral-950 hover:bg-neutral-850 p-3.5 rounded-xl border border-neutral-800 flex justify-between items-center cursor-pointer transition-colors group"
+                        >
+                          <div className="flex flex-col gap-1 min-w-0 flex-1 mr-2">
+                            <span className="font-black text-zinc-200 text-sm block font-mono">{b.number}</span>
+                            <span className="text-xs text-zinc-400 block truncate">{b.clientName}</span>
+                          </div>
+                          <div className="text-right flex flex-col gap-1 shrink-0 items-end">
+                            <span className="font-mono text-zinc-100 font-bold block text-sm">R$ {b.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                            <div className="flex items-center gap-2">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`w-2 h-2 rounded-full ${
+                                  b.status === 'Vendido' ? 'bg-emerald-500' :
+                                  b.status === 'Confirmado' ? 'bg-blue-500' :
+                                  b.status === 'Aguardando Cliente' ? 'bg-amber-500' : 'bg-zinc-500'
+                                }`}></span>
+                                <span className="text-[10px] text-zinc-400 uppercase font-mono font-bold">{b.status}</span>
+                              </div>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteBudget(b.id, e);
+                                }}
+                                className="w-8 h-8 text-rose-400 hover:text-rose-350 hover:bg-rose-950/50 bg-rose-950/20 border border-rose-900/30 rounded-lg transition-all cursor-pointer select-none active:scale-90 flex items-center justify-center shadow-sm"
+                                title="Apagar Orçamento"
+                              >
+                                <Trash2 className="w-4 h-4 stroke-[2]" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </div>
             ) : (
-              <div className="bg-gradient-to-br from-amber-950/40 to-neutral-900 border border-amber-800/30 rounded-xl p-4.5 flex flex-col gap-3.5 relative overflow-hidden">
-                <div className="absolute right-[-10px] bottom-[-20px] opacity-10 text-amber-500">
-                  <Smartphone className="w-28 h-28" />
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-[11px] text-amber-300 uppercase font-bold tracking-wider">Painel Comercial</span>
-                  <span className="px-2 py-0.5 rounded bg-amber-900/50 text-amber-300 font-mono text-[10px] border border-amber-700/30">v1.1.0 Offline-First</span>
-                </div>
-                <div>
-                  <span className="text-[11px] text-zinc-400 block uppercase font-medium">Faturamento (Vendas do Mês)</span>
-                  <span className="text-2xl font-black text-zinc-100 font-mono tracking-tight block mt-1">
-                    R$ {budgets.filter(b => b.status === 'Vendido').reduce((acc, b) => acc + b.total, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-3 gap-2 mt-1.5 pt-3 border-t border-amber-950/40 font-medium">
-                  <div>
-                    <span className="text-[10px] text-zinc-400 block">Ticket Médio</span>
-                    <span className="font-bold text-xs font-mono text-zinc-200">R$ 2.44k</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-zinc-400 block">Conversão</span>
-                    <span className="font-bold text-xs font-mono text-amber-400">50%</span>
-                  </div>
-                  <div>
-                     <span className="text-[10px] text-zinc-400 block">Ativos</span>
-                     <span className="font-bold text-xs font-mono text-zinc-200">{clients.length} Clientes</span>
-                  </div>
-                </div>
-              </div>
+              /* MODO COMPLETO (SERRARIA PRO / GESTÃO INDUSTRIAL) */
+              <CompleteModeModule
+                budgets={budgets}
+                clients={clients}
+                onStartNewBudget={startNewBudget}
+                onNavigateToTab={(tabId) => {
+                  setActiveTab(tabId);
+                  if (tabId === 'products') {
+                    setProductsSubTab('cubagem');
+                    setProdCalcMode('toras');
+                  }
+                  setIsCreatingBudget(false);
+                  setViewingBudget(null);
+                  setSelectedClient(null);
+                  setShowAdmin(false);
+                  setIsAddingClient(false);
+                }}
+                onAddLog={onAddLog}
+                onTriggerNotification={triggerNotification}
+              />
             )}
-
-            {/* CRM Funnel Step Tracker - Only show in complex mode to save space for senior users */}
-            {!seniorMode && (
-              <div>
-                <h4 className="text-sm text-zinc-300 uppercase font-bold mb-2 tracking-wider flex items-center gap-1.5">
-                  <Clock className="w-4 h-4 text-amber-400" /> Fluxo do Orçamento
-                </h4>
-                <div className="flex gap-1.5 items-center bg-neutral-950 p-2 rounded-xl border border-neutral-800">
-                  {[
-                    { label: 'Rascunho', count: budgets.filter(b => b.status === 'Rascunho').length, color: 'bg-zinc-500' },
-                    { label: 'Aguardando', count: budgets.filter(b => b.status === 'Aguardando Cliente').length, color: 'bg-amber-500' },
-                    { label: 'Confirmado', count: budgets.filter(b => b.status === 'Confirmado').length, color: 'bg-blue-500' },
-                    { label: 'Vendido', count: budgets.filter(b => b.status === 'Vendido').length, color: 'bg-emerald-500' }
-                  ].map((step, idx) => (
-                    <div key={idx} className="flex-1 text-center bg-neutral-900 rounded-lg py-2 border border-neutral-850">
-                      <div className="text-lg font-black font-mono text-zinc-100">{step.count}</div>
-                      <div className="flex items-center justify-center gap-1 text-[10px] text-zinc-400 font-bold mt-1 uppercase">
-                        <span className={`w-1.5 h-1.5 rounded-full ${step.color}`}></span>
-                        {step.label.substring(0, 5)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Action shortcuts - Only show in non-senior as senior has custom huge buttons */}
-            {!seniorMode && (
-              <div className="flex flex-col">
-                <button 
-                  onClick={startNewBudget} 
-                  className="w-full bg-amber-600 hover:bg-amber-500 active:scale-[0.98] text-neutral-950 font-black py-4 px-3 rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-lg shadow-amber-950/20 text-sm select-none"
-                >
-                  <Plus className="w-5 h-5 stroke-[3]" />
-                  Novo Orçamento
-                </button>
-              </div>
-            )}
-
-            {/* Recent activity & dynamic chart list */}
-            <div className="flex flex-col gap-2">
-              <div className="flex justify-between items-center">
-                <span className={`text-zinc-300 font-black ${seniorMode ? 'text-sm' : 'text-xs uppercase tracking-wider'}`}>Últimos Orçamentos</span>
-                <span className="text-xs text-amber-500 cursor-pointer hover:underline font-bold" onClick={() => setActiveTab('budgets')}>Ver todos ({budgets.length})</span>
-              </div>
-
-              <div className="space-y-2 pr-0.5">
-                {budgets.length === 0 ? (
-                  <div className="flex-1 h-full min-h-[120px] flex flex-col items-center justify-center p-6 text-center border border-dashed border-neutral-800 rounded-xl bg-neutral-950/30">
-                    <span className="text-3xl mb-1.5 animate-pulse">📋</span>
-                    <span className="text-xs font-bold text-zinc-300 block">Nenhum Orçamento Salvo</span>
-                    <p className="text-[10px] text-zinc-500 mt-1 max-w-[210px] leading-relaxed">Crie orçamentos offline. Os dados ficam salvos de forma segura no aparelho local.</p>
-                  </div>
-                ) : (
-                  budgets.map(b => (
-                    <div 
-                      key={b.id} 
-                      onClick={() => setViewingBudget(b)}
-                      className="bg-neutral-950 hover:bg-neutral-850 p-3 rounded-xl border border-neutral-800 flex justify-between items-center cursor-pointer transition-colors group"
-                    >
-                      <div className="flex flex-col gap-1 min-w-0 flex-1 mr-2">
-                        <span className="font-extrabold text-zinc-200 text-xs block font-mono">{b.number}</span>
-                        <span className="text-xs text-zinc-400 block truncate">{b.clientName}</span>
-                      </div>
-                      <div className="text-right flex flex-col gap-1 shrink-0 items-end">
-                        <span className="font-mono text-zinc-100 font-bold block text-xs">R$ {b.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center gap-1.5">
-                            <span className={`w-2 h-2 rounded-full ${
-                              b.status === 'Vendido' ? 'bg-emerald-500' :
-                              b.status === 'Confirmado' ? 'bg-blue-500' :
-                              b.status === 'Aguardando Cliente' ? 'bg-amber-500' : 'bg-zinc-500'
-                            }`}></span>
-                            <span className="text-[9px] text-zinc-400 uppercase font-mono font-bold">{b.status}</span>
-                          </div>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteBudget(b.id, e);
-                            }}
-                            className="w-9 h-9 text-rose-400 hover:text-rose-350 hover:bg-rose-950/50 bg-rose-950/20 border border-rose-900/30 rounded-xl transition-all cursor-pointer select-none active:scale-90 flex items-center justify-center shadow-sm"
-                            title="Apagar Orçamento"
-                          >
-                            <Trash2 className="w-4.5 h-4.5 stroke-[2]" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
           </motion.div>
         )}
 
@@ -6062,73 +6612,432 @@ ${itemRows}
             transition={{ duration: 0.22, ease: 'easeOut' }}
             className="flex flex-col gap-3.5 h-full overflow-hidden min-h-0"
           >
-              <div className="flex justify-between items-center bg-neutral-900 border border-neutral-800/60 p-3 rounded-2xl shadow-sm">
-                <div className="flex items-center gap-2">
-                  <Users2 className="w-5 h-5 text-emerald-400" />
-                  <h3 className="font-extrabold text-sm text-emerald-400 font-sans tracking-wide">Banco de Clientes</h3>
+              {/* Header */}
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 bg-neutral-900 border border-neutral-800/80 p-3 rounded-2xl shadow-sm">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+                    <Users2 className="w-4.5 h-4.5" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-sm text-zinc-100 font-sans tracking-wide">Cadastro de Clientes</h3>
+                    <span className="text-[10px] text-zinc-400 font-medium">Banco local offline de compradores e faturamento</span>
+                  </div>
                 </div>
-                <button 
-                  onClick={() => setIsAddingClient(true)}
-                  className="bg-emerald-600 hover:bg-emerald-500 active:scale-95 text-neutral-950 px-4 py-2 rounded-xl flex items-center gap-1.5 font-bold text-xs cursor-pointer select-none shadow"
-                >
-                  <UserPlus className="w-4 h-4 stroke-[2.5]" /> Cadastrar Novo
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => setShowQuickClientAdd(!showQuickClientAdd)}
+                    className={`px-3 py-2 rounded-xl flex items-center gap-1.5 font-bold text-xs cursor-pointer select-none border transition-all ${
+                      showQuickClientAdd
+                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                        : 'bg-neutral-850 hover:bg-neutral-800 border-neutral-800 text-zinc-300'
+                    }`}
+                    title="Cadastro simplificado em 3 campos rápidos"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-amber-400" /> Cadastro Rápido
+                  </button>
+                  <button 
+                    type="button"
+                    onClick={() => setIsAddingClient(true)}
+                    className="bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-neutral-950 px-3 py-2 rounded-xl flex items-center gap-1.5 font-black text-xs cursor-pointer select-none shadow-md shadow-emerald-950/30 transition-all"
+                    title="Abrir ficha completa com endereço e CNPJ/CPF"
+                  >
+                    <UserPlus className="w-4 h-4 stroke-[2.5]" /> Ficha Completa
+                  </button>
+                </div>
               </div>
 
-              {/* Search clients */}
-              <div className="relative">
-                <Search className="w-5 h-5 text-zinc-500 absolute left-3.5 top-3.5" />
-                <input 
-                  type="text" 
-                  placeholder="Pesquisar por nome do cliente..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-11 pr-4 py-4 text-xs sm:text-sm outline-none text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-medium"
-                />
+              {/* QUICK CLIENT FAST-INPUT PANEL */}
+              {showQuickClientAdd && (
+                <div className="bg-neutral-900/95 border border-emerald-500/50 rounded-2xl p-3.5 space-y-3 shadow-xl animate-fade-in">
+                  <div className="flex items-center justify-between border-b border-neutral-800 pb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                      <span className="text-xs font-black uppercase text-emerald-400 tracking-wide">
+                        Cadastro Rápido de Cliente
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowQuickClientAdd(false)}
+                      className="text-zinc-500 hover:text-zinc-300 text-xs font-bold"
+                    >
+                      ✕
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <div className="sm:col-span-1">
+                      <label className="text-[9px] uppercase font-bold text-zinc-400 block mb-1">
+                        Nome / Razão Social *
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Madeireira São Bento"
+                        value={quickClientName}
+                        onChange={(e) => setQuickClientName(e.target.value)}
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-100 font-bold outline-none focus:border-emerald-500"
+                        autoFocus
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] uppercase font-bold text-zinc-400 block mb-1">
+                        WhatsApp / Fone
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="(00) 00000-0000"
+                        value={quickClientPhone}
+                        onChange={(e) => setQuickClientPhone(formatBrazilianPhoneNumber(e.target.value))}
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-100 font-mono outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[9px] uppercase font-bold text-zinc-400 block mb-1">
+                        Cidade - UF
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Formiga - MG"
+                        value={quickClientCity}
+                        onChange={(e) => setQuickClientCity(e.target.value)}
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-100 outline-none focus:border-emerald-500"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 pt-1 border-t border-neutral-850">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowQuickClientAdd(false);
+                        setIsAddingClient(true);
+                      }}
+                      className="text-[10px] text-zinc-400 hover:text-emerald-400 underline font-medium cursor-pointer"
+                    >
+                      Precisa de CPF/CNPJ e endereço completo? Abrir ficha completa
+                    </button>
+                    <div className="flex items-center gap-2 self-end">
+                      <button
+                        type="button"
+                        onClick={() => setShowQuickClientAdd(false)}
+                        className="bg-neutral-800 hover:bg-neutral-750 text-zinc-400 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveQuickClient}
+                        className="bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-black px-4 py-1.5 rounded-lg text-xs uppercase cursor-pointer transition-all active:scale-95 shadow-md"
+                      >
+                        ✓ Salvar Cliente
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* KPI Summary Row */}
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-neutral-950 border border-neutral-800/80 rounded-xl p-2.5 flex flex-col">
+                  <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-bold">Total Cadastrado</span>
+                  <span className="text-base font-black text-zinc-100 font-mono mt-0.5">{clients.length} <span className="text-[10px] text-zinc-500 font-sans font-normal">clientes</span></span>
+                </div>
+                <div className="bg-neutral-950 border border-neutral-800/80 rounded-xl p-2.5 flex flex-col">
+                  <span className="text-[9px] uppercase tracking-wider text-emerald-500 font-bold">Com Pedidos</span>
+                  <span className="text-base font-black text-emerald-400 font-mono mt-0.5">
+                    {clients.filter(c => (c.totalSpent || 0) > 0 || budgets.some(b => b.clientId === c.id)).length}
+                  </span>
+                </div>
+                <div className="bg-neutral-950 border border-neutral-800/80 rounded-xl p-2.5 flex flex-col">
+                  <span className="text-[9px] uppercase tracking-wider text-amber-500 font-bold">Total Faturado</span>
+                  <span className="text-xs font-black text-amber-400 font-mono mt-1 truncate">
+                    R$ {clients.reduce((acc, c) => acc + (c.totalSpent || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Search and Filter Chips */}
+              <div className="space-y-2">
+                <div className="relative">
+                  <Search className="w-4.5 h-4.5 text-zinc-500 absolute left-3.5 top-3.5" />
+                  <input 
+                    type="text" 
+                    placeholder="Pesquisar por nome, documento ou cidade..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-10 pr-9 py-3 text-xs sm:text-sm outline-none text-zinc-100 placeholder-zinc-500 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-medium"
+                  />
+                  {searchQuery && (
+                    <button 
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-3 text-zinc-500 hover:text-zinc-300 text-xs font-bold p-0.5"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                {/* Filter Pills and Sorter */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 text-[11px] font-bold">
+                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+                    <button
+                      onClick={() => setClientFilter('all')}
+                      className={`px-3 py-1.5 rounded-lg border whitespace-nowrap transition-colors cursor-pointer ${
+                        clientFilter === 'all'
+                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-300'
+                          : 'bg-neutral-950 border-neutral-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Todos ({clients.length})
+                    </button>
+                    <button
+                      onClick={() => setClientFilter('with_orders')}
+                      className={`px-3 py-1.5 rounded-lg border whitespace-nowrap transition-colors cursor-pointer ${
+                        clientFilter === 'with_orders'
+                          ? 'bg-emerald-500/15 border-emerald-500 text-emerald-300'
+                          : 'bg-neutral-950 border-neutral-800 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Com Compras ({clients.filter(c => (c.totalSpent || 0) > 0).length})
+                    </button>
+                  </div>
+
+                  {/* Sorter */}
+                  <div className="flex items-center gap-1 bg-neutral-950 border border-neutral-800/80 rounded-lg p-0.5 text-[10px] self-start sm:self-auto">
+                    <span className="text-zinc-500 px-1.5 font-bold">Ordenar:</span>
+                    <button
+                      type="button"
+                      onClick={() => setClientSort('recent')}
+                      className={`px-2 py-1 rounded transition-colors cursor-pointer ${
+                        clientSort === 'recent'
+                          ? 'bg-emerald-500/20 text-emerald-300 font-bold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Recentes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClientSort('spent')}
+                      className={`px-2 py-1 rounded transition-colors cursor-pointer ${
+                        clientSort === 'spent'
+                          ? 'bg-emerald-500/20 text-emerald-300 font-bold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Maior Gasto
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setClientSort('name')}
+                      className={`px-2 py-1 rounded transition-colors cursor-pointer ${
+                        clientSort === 'name'
+                          ? 'bg-emerald-500/20 text-emerald-300 font-bold'
+                          : 'text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      Nome A-Z
+                    </button>
+                  </div>
+                </div>
               </div>
 
               {/* Listing Customer Cards */}
-              <div className="flex-1 overflow-y-auto space-y-2.5 pr-0.5 mt-1 min-h-[220px]">
-                {clients.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase())).length === 0 ? (
-                  <div className="h-full min-h-[240px] flex flex-col items-center justify-center p-8 text-center border-2 border-dashed border-neutral-800/60 rounded-2xl bg-neutral-950/20 my-auto">
-                    <span className="text-4xl mb-3 animate-pulse">👥</span>
-                    <span className="text-sm font-black text-zinc-200 block uppercase tracking-wide">Nenhum Cliente Local</span>
-                    <p className="text-xs text-zinc-500 mt-2 max-w-[220px] leading-relaxed">
-                      Adicione seus clientes do dia a dia diretamente do celular offline. Fica gravado localmente no banco de dados SQLite.
-                    </p>
-                    <button 
-                      onClick={() => setIsAddingClient(true)}
-                      className="mt-4 bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-extrabold px-6 py-3 rounded-xl text-xs uppercase cursor-pointer transition-all active:scale-95 shadow-lg shadow-emerald-950/20"
-                    >
-                      Cadastrar Primeiro Cliente
-                    </button>
-                  </div>
-                ) : (
-                  clients.filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase())).map(c => (
-                    <div 
-                      key={c.id}
-                      onClick={() => setSelectedClient(c)}
-                      className="p-3.5 bg-neutral-950 rounded-xl border border-neutral-800 hover:border-emerald-600/50 cursor-pointer transition-colors shadow-sm"
-                    >
-                      <div className="flex justify-between items-start gap-2">
-                        <span className="font-extrabold text-zinc-200 text-sm tracking-tight">{c.name}</span>
-                        <span className="text-[10px] text-zinc-500 font-mono shrink-0 font-bold bg-neutral-900 border border-neutral-800/40 px-1.5 py-0.5 rounded">{c.createdAt}</span>
+              <div className="flex-1 overflow-y-auto space-y-2.5 pr-0.5 min-h-[200px]">
+                {(() => {
+                  let filtered = clients.filter(c => {
+                    const q = searchQuery.toLowerCase();
+                    const matchQuery = c.name.toLowerCase().includes(q) ||
+                      (c.document && c.document.toLowerCase().includes(q)) ||
+                      (c.city && c.city.toLowerCase().includes(q)) ||
+                      (c.phone && c.phone.includes(q)) ||
+                      (c.address && c.address.toLowerCase().includes(q));
+                    if (!matchQuery) return false;
+
+                    if (clientFilter === 'with_orders') {
+                      return (c.totalSpent || 0) > 0 || budgets.some(b => b.clientId === c.id);
+                    }
+                    return true;
+                  });
+
+                  if (clientSort === 'recent') {
+                    filtered = [...filtered].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+                  } else if (clientSort === 'spent') {
+                    filtered = [...filtered].sort((a, b) => (b.totalSpent || 0) - (a.totalSpent || 0));
+                  } else if (clientSort === 'name') {
+                    filtered = [...filtered].sort((a, b) => a.name.localeCompare(b.name));
+                  }
+
+                  if (filtered.length === 0) {
+                    return (
+                      <div className="h-full min-h-[220px] flex flex-col items-center justify-center p-6 text-center border border-dashed border-neutral-800 rounded-2xl bg-neutral-950/40 my-auto">
+                        <span className="text-3xl mb-2">👥</span>
+                        <span className="text-sm font-bold text-zinc-200 block">Nenhum cliente encontrado</span>
+                        <p className="text-xs text-zinc-500 mt-1 max-w-[240px] leading-relaxed">
+                          {searchQuery ? 'Tente buscar com outro termo ou limpe os filtros.' : 'Cadastre seu primeiro cliente para salvar orçamentos e emitir recibos.'}
+                        </p>
+                        <button 
+                          onClick={() => setIsAddingClient(true)}
+                          className="mt-3.5 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-bold px-4 py-2 rounded-xl text-xs uppercase cursor-pointer transition-all active:scale-95"
+                        >
+                          + Cadastrar Cliente
+                        </button>
                       </div>
-                      <div className="text-[11px] text-zinc-400 mt-2 block truncate flex items-center gap-1.5">
-                        <span className="text-zinc-500 font-sans shrink-0">📍</span> {c.address || "Sem endereço de destino salvo"}
+                    );
+                  }
+
+                  return filtered.map(c => {
+                    const initials = c.name
+                      .split(' ')
+                      .filter(Boolean)
+                      .slice(0, 2)
+                      .map(w => w[0].toUpperCase())
+                      .join('') || 'CL';
+                    const clientBudgets = budgets.filter(b => b.clientId === c.id);
+
+                    return (
+                      <div 
+                        key={c.id}
+                        className="p-3.5 bg-neutral-950 rounded-2xl border border-neutral-800/80 hover:border-emerald-500/40 transition-all shadow-sm group"
+                      >
+                        {/* Top: Avatar + Name + Type + Date */}
+                        <div className="flex items-start justify-between gap-2.5">
+                          <div className="flex items-start gap-3 min-w-0 flex-1">
+                            <div className="w-10 h-10 rounded-xl bg-emerald-950/60 border border-emerald-800/40 text-emerald-400 font-mono font-black text-xs flex items-center justify-center shrink-0">
+                              {initials}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-extrabold text-zinc-100 text-sm tracking-tight truncate">{c.name}</span>
+                                <span className={`text-[9px] font-black uppercase px-1.5 py-0.5 rounded ${
+                                  c.clientType === 'PJ' 
+                                    ? 'bg-blue-950/60 text-blue-400 border border-blue-800/40' 
+                                    : 'bg-neutral-850 text-zinc-400 border border-neutral-800'
+                                }`}>
+                                  {c.clientType === 'PJ' ? '🏢 Pessoa Jurídica' : '👤 Pessoa Física'}
+                                </span>
+                              </div>
+                              {c.document && (
+                                <span className="text-[10px] text-zinc-400 font-mono block mt-0.5">Doc: {c.document}</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[10px] text-zinc-500 font-mono font-bold bg-neutral-900 border border-neutral-800/40 px-1.5 py-0.5 rounded shrink-0">
+                            {c.createdAt}
+                          </span>
+                        </div>
+
+                        {/* Location & Contacts */}
+                        <div className="mt-2.5 pt-2 border-t border-neutral-900 grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs text-zinc-400">
+                          <div className="flex items-center gap-1.5 truncate">
+                            <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <span className="truncate">{c.city ? `${c.city} - ` : ''}{c.address || 'Sem endereço informado'}</span>
+                          </div>
+                          <div className="flex items-center gap-1.5 font-mono text-zinc-300">
+                            <Phone className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                            <span>{c.phone || '(00) 00000-0000'}</span>
+                          </div>
+                        </div>
+
+                        {/* Financial summary & Action buttons */}
+                        <div className="flex items-center justify-between mt-3 pt-2 border-t border-neutral-900">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] text-zinc-400 font-mono bg-neutral-900 px-2 py-0.5 rounded border border-neutral-850">
+                              {clientBudgets.length} {clientBudgets.length === 1 ? 'orçamento' : 'orçamentos'}
+                            </span>
+                            <span className="text-[11px] font-black text-emerald-400 font-mono">
+                              R$ {(c.totalSpent || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {/* Direct WhatsApp button */}
+                            {c.whatsapp && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.open(`https://wa.me/55${c.whatsapp}?text=${encodeURIComponent(`Olá ${c.name}, tudo bem? Entramos em contato a respeito da sua cotação de madeiras.`)}`, '_blank');
+                                }}
+                                className="bg-emerald-950/40 hover:bg-emerald-900/60 border border-emerald-800/40 text-emerald-400 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                                title="Abrir WhatsApp"
+                              >
+                                <MessageCircle className="w-3 h-3" /> Zap
+                              </button>
+                            )}
+
+                            {/* Direct New Budget Button */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startNewBudget();
+                                setBSelectedClient(c);
+                                setBClientSelectionMode('existing');
+                                setActiveTab('budgets');
+                                triggerNotification(`Iniciando orçamento para ${c.name}`);
+                              }}
+                              className="bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-400 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase flex items-center gap-1 cursor-pointer transition-colors"
+                              title="Criar novo orçamento para este cliente"
+                            >
+                              <Plus className="w-3 h-3 stroke-[3]" /> Orçar
+                            </button>
+
+                            {/* Edit Button */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedClient(c);
+                                setEditClientName(c.name);
+                                setEditClientPhone(c.phone || '');
+                                setEditClientAddress(c.address || '');
+                                setEditClientCity(c.city || '');
+                                setEditClientDocument(c.document || '');
+                                setEditClientType(c.clientType || 'PF');
+                                setEditClientObs(c.observations || '');
+                                setIsEditingClient(true);
+                              }}
+                              className="bg-neutral-850 hover:bg-neutral-800 text-zinc-300 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                              title="Editar ficha"
+                            >
+                              <Edit3 className="w-3 h-3" />
+                            </button>
+
+                            {/* View Full Card Button */}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedClient(c)}
+                              className="bg-neutral-850 hover:bg-neutral-800 text-zinc-200 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                              title="Ver ficha completa"
+                            >
+                              <Eye className="w-3 h-3" />
+                            </button>
+
+                            {/* Delete Client Button */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setClientToDelete(c);
+                              }}
+                              className="bg-neutral-850 hover:bg-rose-950/60 hover:text-rose-400 text-zinc-400 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                              title="Excluir cadastro"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex justify-between items-center mt-3 pt-2 text-[10px] border-t border-neutral-900/60">
-                        <span className="text-emerald-400 uppercase font-mono font-bold tracking-wider">WhatsApp: {c.phone}</span>
-                        <span className="text-zinc-300 font-mono font-extrabold bg-neutral-900 px-2 py-0.5 rounded text-[11px] border border-neutral-850">Lançado: R$ {c.totalSpent.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                    </div>
-                  ))
-                )}
+                    );
+                  });
+                })()}
               </div>
             </motion.div>
           )}
 
-          {/* ADD CLIENT FORM */}
+          {/* ADD CLIENT FORM - REFINED, ROBUST & WELL-ELABORATED */}
           {isAddingClient && (
             <motion.div 
               key="add-client-form"
@@ -6136,91 +7045,192 @@ ${itemRows}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.22, ease: 'easeOut' }}
-              className="p-1 flex flex-col gap-4 h-full justify-between"
+              className="flex flex-col gap-3.5 h-full overflow-hidden min-h-0"
             >
-              <div className="flex flex-col gap-4">
-                <div className="flex items-center gap-1.5 border-b border-neutral-800 pb-3">
-                  <button onClick={() => setIsAddingClient(false)} className="text-zinc-300 hover:text-zinc-100 p-1 bg-neutral-850 rounded-lg text-xs">← Voltar</button>
-                  <span className="font-bold text-emerald-400 ml-1 text-sm font-sans">Novo Cadastro Offline</span>
+              {/* Header Bar */}
+              <div className="flex items-center justify-between border-b border-neutral-800 pb-3">
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => setIsAddingClient(false)} 
+                    className="text-zinc-400 hover:text-zinc-100 p-1.5 bg-neutral-900 border border-neutral-800 rounded-xl text-xs flex items-center gap-1 font-bold cursor-pointer transition-colors"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" /> Voltar
+                  </button>
+                  <span className="font-extrabold text-emerald-400 text-sm font-sans flex items-center gap-1.5">
+                    <UserPlus className="w-4 h-4" /> Novo Cadastro de Cliente
+                  </span>
                 </div>
+                <span className="text-[10px] font-mono text-emerald-500/80 bg-emerald-950/40 border border-emerald-800/30 px-2 py-0.5 rounded-full font-bold">
+                  Armazenamento Offline
+                </span>
+              </div>
 
-                <form onSubmit={handleAddClient} className="space-y-4">
+              {/* Scrollable Form Body */}
+              <form onSubmit={handleAddClient} className="flex-1 overflow-y-auto space-y-4 pr-1">
+                {/* SECTION 1: TIPO & IDENTIFICAÇÃO */}
+                <div className="bg-neutral-950 border border-neutral-800/90 rounded-2xl p-3.5 space-y-3 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5" /> 1. Identificação & Perfil
+                    </span>
+                    {/* Toggle PF / PJ */}
+                    <div className="flex bg-neutral-900 p-0.5 rounded-lg border border-neutral-800">
+                      <button
+                        type="button"
+                        onClick={() => setNewClientType('PF')}
+                        className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                          newClientType === 'PF'
+                            ? 'bg-emerald-500 text-neutral-950 shadow-sm'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        Pessoa Física
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNewClientType('PJ')}
+                        className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all cursor-pointer ${
+                          newClientType === 'PJ'
+                            ? 'bg-emerald-500 text-neutral-950 shadow-sm'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        Empresa (PJ)
+                      </button>
+                    </div>
+                  </div>
+
                   <div>
-                    <label className="text-[10px] uppercase tracking-wider text-emerald-500 font-bold block mb-1">Nome do Cliente / Razão Social</label>
+                    <label className="text-[10px] uppercase tracking-wider text-zinc-400 font-bold block mb-1">
+                      {newClientType === 'PJ' ? 'Razão Social / Nome Fantasia *' : 'Nome Completo do Cliente *'}
+                    </label>
                     <input 
                       type="text" 
                       required
-                      placeholder="Ex: Madeireira São Bento Ltda"
+                      placeholder={newClientType === 'PJ' ? 'Ex: Construtora Horizonte Ltda' : 'Ex: João da Silva Santos'}
                       value={newClientName}
                       onChange={(e) => setNewClientName(e.target.value)}
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-medium"
                     />
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-[10px] uppercase tracking-wider text-emerald-500 font-bold block mb-1">Telefone Comercial</label>
-                      <input 
-                        type="text" 
-                        placeholder="Ex: (11) 98888-7777"
-                        value={newClientPhone}
-                        onChange={(e) => setNewClientPhone(formatBrazilianPhoneNumber(e.target.value))}
-                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[10px] uppercase tracking-wider text-emerald-500 font-bold block mb-1">Número WhatsApp</label>
-                      <input 
-                        type="text" 
-                        placeholder="Ex: (11) 98888-7777"
-                        value={newClientWhatsapp}
-                        onChange={(e) => setNewClientWhatsapp(formatBrazilianPhoneNumber(e.target.value))}
-                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-mono"
-                      />
-                    </div>
-                  </div>
-
                   <div>
-                    <label className="text-[10px] uppercase tracking-wider text-emerald-500 font-bold block mb-1">Endereço de Entrega</label>
+                    <label className="text-[10px] uppercase tracking-wider text-zinc-400 font-bold block mb-1">
+                      {newClientType === 'PJ' ? 'CNPJ' : 'CPF (Opcional)'}
+                    </label>
                     <input 
                       type="text" 
-                      placeholder="Ex: Av. das Nações Unidas, 1200"
-                      value={newClientAddress}
-                      onChange={(e) => setNewClientAddress(e.target.value)}
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      placeholder={newClientType === 'PJ' ? '00.000.000/0000-00' : '000.000.000-00'}
+                      value={newClientDocument}
+                      onChange={(e) => setNewClientDocument(formatCpfCnpj(e.target.value))}
+                      className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-mono"
                     />
                   </div>
+                </div>
 
-                  <div>
-                    <label className="text-[10px] uppercase tracking-wider text-emerald-500 font-bold block mb-1">Observações do Vendedor</label>
-                    <textarea 
-                      placeholder="Ex: Requer boleto faturado 28 dias. Só compra produtos acima de 4m..."
-                      value={newClientObs}
-                      onChange={(e) => setNewClientObs(e.target.value)}
-                      rows={2}
-                      className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
-                    />
+                {/* SECTION 2: CONTATO */}
+                <div className="bg-neutral-950 border border-neutral-800/90 rounded-2xl p-3.5 space-y-3 shadow-sm">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                    <Phone className="w-3.5 h-3.5" /> 2. Contatos & WhatsApp
+                  </span>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wider text-zinc-400 font-bold block mb-1">
+                        WhatsApp Principal
+                      </label>
+                      <input 
+                        type="text" 
+                        placeholder="(00) 00000-0000"
+                        value={newClientWhatsapp}
+                        onChange={(e) => setNewClientWhatsapp(formatBrazilianPhoneNumber(e.target.value))}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wider text-zinc-400 font-bold block mb-1">
+                        Telefone Fixo / Comercial
+                      </label>
+                      <input 
+                        type="text" 
+                        placeholder="(00) 0000-0000"
+                        value={newClientPhone}
+                        onChange={(e) => setNewClientPhone(formatBrazilianPhoneNumber(e.target.value))}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-mono"
+                      />
+                    </div>
                   </div>
+                </div>
 
+                {/* SECTION 3: ENDEREÇO & ENTREGA */}
+                <div className="bg-neutral-950 border border-neutral-800/90 rounded-2xl p-3.5 space-y-3 shadow-sm">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                    <MapPin className="w-3.5 h-3.5" /> 3. Endereço de Entrega & Destino
+                  </span>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="text-[10px] uppercase tracking-wider text-zinc-400 font-bold block mb-1">
+                        Logradouro / Fazenda / Obra
+                      </label>
+                      <input 
+                        type="text" 
+                        placeholder="Ex: Rodovia MG-050, Km 42 - Fazenda Esperança"
+                        value={newClientAddress}
+                        onChange={(e) => setNewClientAddress(e.target.value)}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] uppercase tracking-wider text-zinc-400 font-bold block mb-1">
+                        Cidade / UF
+                      </label>
+                      <input 
+                        type="text" 
+                        placeholder="Ex: Formiga - MG"
+                        value={newClientCity}
+                        onChange={(e) => setNewClientCity(e.target.value)}
+                        className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* SECTION 4: OBSERVAÇÕES COMERCIAIS */}
+                <div className="bg-neutral-950 border border-neutral-800/90 rounded-2xl p-3.5 space-y-2 shadow-sm">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5" /> 4. Observações & Perfil Comercial
+                  </span>
+                  <textarea 
+                    placeholder="Ex: Paga sempre à vista no descarregamento; prefere tábuas de 30cm com 5 metros; descarregamento com caminhão toco..."
+                    value={newClientObs}
+                    onChange={(e) => setNewClientObs(e.target.value)}
+                    rows={2.5}
+                    className="w-full bg-neutral-900 border border-neutral-800 rounded-xl p-3 text-xs text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none"
+                  />
+                </div>
+
+                {/* Submit & Cancel Actions */}
+                <div className="flex gap-2.5 pt-2 pb-4">
+                  <button 
+                    type="button"
+                    onClick={() => setIsAddingClient(false)}
+                    className="bg-neutral-900 hover:bg-neutral-850 text-zinc-400 font-bold px-4 py-3 rounded-xl cursor-pointer transition-colors text-xs uppercase select-none"
+                  >
+                    Cancelar
+                  </button>
                   <button 
                     type="submit"
-                    className="w-full bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-bold py-3.5 rounded-xl cursor-pointer transition-colors text-sm uppercase tracking-wide select-none active:scale-[0.98]"
+                    className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-neutral-950 font-black py-3.5 rounded-xl cursor-pointer transition-all text-xs uppercase tracking-wide select-none active:scale-[0.98] shadow-lg shadow-emerald-950/40 flex items-center justify-center gap-2"
                   >
-                    Salvar Dados no Aparelho
+                    <CheckCircle2 className="w-4 h-4 stroke-[2.5]" /> Salvar Cadastro no Aparelho
                   </button>
-                </form>
-              </div>
-
-              <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800/80 flex items-start gap-2.5 text-zinc-400">
-                <Info className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span className="text-xs leading-normal">
-                  As regras de integridade do SQLite garantem que o UUID do cliente seja auto-resolvido preventivamente e sem colisão mesmo sem redes.
-                </span>
-              </div>
+                </div>
+              </form>
             </motion.div>
           )}
 
-          {/* CUSTOMER DETAILS MODAL */}
+          {/* CUSTOMER DETAILS & EDIT MODAL */}
           {selectedClient && (
             <motion.div 
               key="client-details"
@@ -6228,67 +7238,131 @@ ${itemRows}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 50 }}
               transition={{ duration: 0.28, ease: 'easeOut' }}
-              className="absolute inset-x-0 bottom-0 top-12 bg-neutral-900 rounded-t-3xl z-40 p-4.5 flex flex-col justify-between border-t border-neutral-800 overflow-hidden"
+              className="absolute inset-x-0 bottom-0 top-12 bg-neutral-900 rounded-t-3xl z-40 p-4 flex flex-col justify-between border-t border-neutral-800 overflow-hidden shadow-2xl"
             >
               {isEditingClient ? (
                 /* EDIT FORM */
-                <div className="flex-1 flex flex-col justify-between overflow-y-auto">
-                  <div className="space-y-3">
-                    <div className="flex justify-between items-center border-b border-neutral-800 pb-2">
-                      <span className="font-extrabold text-amber-500 text-xs uppercase tracking-wider font-sans flex items-center gap-1.5">📝 Editar Ficha de Cliente</span>
+                <div className="flex-1 flex flex-col justify-between overflow-y-auto pr-1">
+                  <div className="space-y-3.5">
+                    <div className="flex justify-between items-center border-b border-neutral-800 pb-2.5">
+                      <span className="font-extrabold text-amber-400 text-xs uppercase tracking-wider font-sans flex items-center gap-1.5">
+                        <Edit3 className="w-4 h-4" /> Editar Cadastro de Cliente
+                      </span>
                       <button 
                         onClick={() => {
                           setIsEditingClient(false);
                           setShowDeleteConfirm(false);
                         }}
-                        className="text-zinc-500 hover:text-zinc-300 text-[10px] uppercase font-bold bg-neutral-950 border border-neutral-850 px-2 py-1 rounded"
+                        className="text-zinc-400 hover:text-zinc-200 text-xs bg-neutral-950 border border-neutral-800 px-2.5 py-1 rounded-lg font-bold"
                       >
-                        Cancelar
+                        ✕ Cancelar
                       </button>
                     </div>
 
-                    <div className="space-y-3 pt-1">
+                    {/* Client Type Toggle */}
+                    <div className="flex bg-neutral-950 p-1 rounded-xl border border-neutral-800 gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setEditClientType('PF')}
+                        className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                          editClientType === 'PF'
+                            ? 'bg-emerald-500 text-neutral-950 shadow-sm'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        👤 Pessoa Física
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditClientType('PJ')}
+                        className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+                          editClientType === 'PJ'
+                            ? 'bg-emerald-500 text-neutral-950 shadow-sm'
+                            : 'text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        🏢 Empresa (PJ)
+                      </button>
+                    </div>
+
+                    <div className="space-y-3">
                       <div>
-                        <label className="text-[9px] uppercase tracking-wider text-emerald-500 font-bold block mb-1">Nome do Cliente / Razão Social</label>
+                        <label className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold block mb-1">
+                          Nome do Cliente / Razão Social *
+                        </label>
                         <input 
                           type="text" 
                           placeholder="Nome do cliente"
                           value={editClientName}
                           onChange={(e) => setEditClientName(e.target.value)}
-                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-sans"
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-sans"
                         />
                       </div>
 
-                      <div>
-                        <label className="text-[9px] uppercase tracking-wider text-emerald-500 font-bold block mb-1">Telefone / WhatsApp</label>
-                        <input 
-                          type="text" 
-                          placeholder="(00) 00000-0000"
-                          value={editClientPhone}
-                          onChange={(e) => setEditClientPhone(formatBrazilianPhoneNumber(e.target.value))}
-                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-mono"
-                        />
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold block mb-1">
+                            {editClientType === 'PJ' ? 'CNPJ' : 'CPF'}
+                          </label>
+                          <input 
+                            type="text" 
+                            placeholder="Documento..."
+                            value={editClientDocument}
+                            onChange={(e) => setEditClientDocument(formatCpfCnpj(e.target.value))}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold block mb-1">
+                            Telefone / WhatsApp
+                          </label>
+                          <input 
+                            type="text" 
+                            placeholder="(00) 00000-0000"
+                            value={editClientPhone}
+                            onChange={(e) => setEditClientPhone(formatBrazilianPhoneNumber(e.target.value))}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="col-span-2">
+                          <label className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold block mb-1">
+                            Endereço de Entrega
+                          </label>
+                          <input 
+                            type="text" 
+                            placeholder="Endereço, fazenda ou obra..."
+                            value={editClientAddress}
+                            onChange={(e) => setEditClientAddress(e.target.value)}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-sans"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold block mb-1">
+                            Cidade / UF
+                          </label>
+                          <input 
+                            type="text" 
+                            placeholder="Cidade..."
+                            value={editClientCity}
+                            onChange={(e) => setEditClientCity(e.target.value)}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-sans"
+                          />
+                        </div>
                       </div>
 
                       <div>
-                        <label className="text-[9px] uppercase tracking-wider text-emerald-500 font-bold block mb-1">Endereço de Entrega</label>
-                        <input 
-                          type="text" 
-                          placeholder="Endereço ou distribuidora de retirada..."
-                          value={editClientAddress}
-                          onChange={(e) => setEditClientAddress(e.target.value)}
-                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 font-sans"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="text-[9px] uppercase tracking-wider text-emerald-500 font-bold block mb-1">Observações do Vendedor</label>
+                        <label className="text-[9px] uppercase tracking-wider text-emerald-400 font-bold block mb-1">
+                          Observações & Perfil
+                        </label>
                         <textarea 
                           rows={2.5}
                           placeholder="Notas especiais, prazos de pagamento..."
                           value={editClientObs}
                           onChange={(e) => setEditClientObs(e.target.value)}
-                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none font-sans"
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 resize-none font-sans"
                         />
                       </div>
                     </div>
@@ -6301,7 +7375,7 @@ ${itemRows}
                         setIsEditingClient(false);
                         setShowDeleteConfirm(false);
                       }}
-                      className="bg-neutral-850 hover:bg-neutral-800 text-zinc-350 font-extrabold px-5 py-3 rounded-xl text-xs uppercase cursor-pointer text-center select-none"
+                      className="bg-neutral-850 hover:bg-neutral-800 text-zinc-300 font-extrabold px-5 py-3 rounded-xl text-xs uppercase cursor-pointer text-center select-none"
                     >
                       Voltar
                     </button>
@@ -6317,50 +7391,79 @@ ${itemRows}
               ) : (
                 /* STATIC VIEW DETAILS WITH TRIGGERS & CONFIRMATION */
                 <div className="flex-1 flex flex-col justify-between overflow-hidden">
-                  <div className="space-y-3.5 overflow-y-auto pr-0.5">
+                  <div className="space-y-3 overflow-y-auto pr-0.5">
                     <div className="flex justify-between items-center border-b border-neutral-800 pb-2">
-                      <span className="font-sans font-extrabold text-zinc-100 text-xs uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">👤 Ficha de Cliente</span>
+                      <span className="font-sans font-extrabold text-emerald-400 text-xs uppercase tracking-wider flex items-center gap-1.5">
+                        <User className="w-4 h-4" /> Ficha Cadastral do Cliente
+                      </span>
                       <button 
                         onClick={() => {
                           setSelectedClient(null);
                           setIsEditingClient(false);
                           setShowDeleteConfirm(false);
                         }}
-                        className="text-zinc-500 hover:text-zinc-200 text-xs bg-neutral-950 px-2.5 py-1 rounded-lg border border-neutral-800/40 font-bold"
+                        className="text-zinc-400 hover:text-zinc-200 text-xs bg-neutral-950 px-2.5 py-1 rounded-lg border border-neutral-800/60 font-bold"
                       >
                         Fechar
                       </button>
                     </div>
 
-                    <div className="bg-neutral-950 p-3.5 rounded-2xl border border-neutral-805 space-y-2.5">
+                    <div className="bg-neutral-950 p-3.5 rounded-2xl border border-neutral-800 space-y-2.5 shadow-sm">
                       <div className="flex justify-between items-start">
                         <div>
                           <span className="text-[8px] text-zinc-500 block uppercase font-mono tracking-wider">Identificação / Razão Social</span>
-                          <span className="font-extrabold text-sm text-zinc-200 block mt-0.5">{selectedClient.name}</span>
+                          <span className="font-extrabold text-sm text-zinc-100 block mt-0.5">{selectedClient.name}</span>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-zinc-400">
+                              {selectedClient.clientType === 'PJ' ? '🏢 Pessoa Jurídica' : '👤 Pessoa Física'}
+                            </span>
+                            {selectedClient.document && (
+                              <span className="text-[9px] font-mono font-bold text-zinc-400 bg-neutral-900 px-1.5 py-0.5 rounded border border-neutral-800">
+                                Doc: {selectedClient.document}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-[9px] text-zinc-500 font-mono font-bold bg-neutral-905 border border-neutral-800/40 px-1.5 py-0.5 rounded">{selectedClient.createdAt}</span>
+                        <span className="text-[9px] text-zinc-500 font-mono font-bold bg-neutral-900 border border-neutral-800/40 px-1.5 py-0.5 rounded">
+                          {selectedClient.createdAt}
+                        </span>
                       </div>
 
                       <div className="pt-2 border-t border-neutral-900">
-                        <span className="text-[8px] text-zinc-500 block uppercase font-mono tracking-wider">📍 Endereço de Entrega</span>
-                        <div className="text-zinc-350 text-xs mt-0.5 font-sans leading-relaxed">{selectedClient.address || "Sem endereço salvo"}</div>
+                        <span className="text-[8px] text-zinc-500 block uppercase font-mono tracking-wider">📍 Endereço & Local de Entrega</span>
+                        <div className="text-zinc-300 text-xs mt-0.5 font-sans leading-relaxed">
+                          {selectedClient.city ? `${selectedClient.city} • ` : ''}{selectedClient.address || "Sem endereço cadastrado"}
+                        </div>
                       </div>
 
-                      <div className="pt-2 border-t border-neutral-900 font-sans">
-                        <span className="text-[8px] text-zinc-500 block uppercase font-mono tracking-wider">📞 Telefone / WhatsApp</span>
-                        <div className="text-zinc-350 text-xs mt-0.5 font-mono">{selectedClient.phone || "Não informado"}</div>
+                      <div className="pt-2 border-t border-neutral-900 flex justify-between items-center">
+                        <div>
+                          <span className="text-[8px] text-zinc-500 block uppercase font-mono tracking-wider">📞 Telefone / WhatsApp</span>
+                          <div className="text-zinc-300 text-xs mt-0.5 font-mono">{selectedClient.phone || "Não informado"}</div>
+                        </div>
+                        {selectedClient.whatsapp && (
+                          <button
+                            type="button"
+                            onClick={() => window.open(`https://wa.me/55${selectedClient.whatsapp}?text=${encodeURIComponent(`Olá ${selectedClient.name}, estamos à disposição!`)}`, '_blank')}
+                            className="bg-emerald-950/60 hover:bg-emerald-900/80 border border-emerald-800/60 text-emerald-400 px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" /> Abrir WhatsApp
+                          </button>
+                        )}
                       </div>
 
                       <div className="pt-2 border-t border-neutral-900">
-                        <span className="text-[8px] text-zinc-500 block uppercase font-mono tracking-wider">🗒️ Notas Especiais</span>
-                        <p className="text-zinc-400 text-[11px] mt-0.5 italic leading-relaxed">{selectedClient.observations || 'Nenhuma nota especial inserida.'}</p>
+                        <span className="text-[8px] text-zinc-500 block uppercase font-mono tracking-wider">🗒️ Notas Especiais do Vendedor</span>
+                        <p className="text-zinc-400 text-xs mt-0.5 italic leading-relaxed">{selectedClient.observations || 'Nenhuma nota especial inserida.'}</p>
                       </div>
                     </div>
 
                     {/* Transaction History list */}
                     <div>
                       <div className="flex justify-between items-center mb-1.5">
-                        <h4 className="text-[9px] text-zinc-400 uppercase font-black tracking-wider block">Histórico de Pedidos ({budgets.filter(b => b.clientId === selectedClient.id).length})</h4>
+                        <h4 className="text-[9px] text-zinc-400 uppercase font-black tracking-wider block">
+                          Histórico de Pedidos ({budgets.filter(b => b.clientId === selectedClient.id).length})
+                        </h4>
                         <button
                           type="button"
                           onClick={() => {
@@ -6369,23 +7472,26 @@ ${itemRows}
                             setBClientSelectionMode('existing');
                             setSelectedClient(null);
                             setActiveTab('budgets');
+                            triggerNotification(`Criando orçamento para ${selectedClient.name}`);
                           }}
                           className="text-[9px] text-amber-400 hover:text-amber-300 font-extrabold uppercase flex items-center gap-1 cursor-pointer"
                         >
                           <span>➕ Novo Orçamento</span>
                         </button>
                       </div>
-                      <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-0.5">
+                      <div className="space-y-1.5 max-h-[150px] overflow-y-auto pr-0.5">
                         {budgets.filter(b => b.clientId === selectedClient.id).length === 0 ? (
-                          <span className="text-[10px] text-zinc-500 block italic leading-relaxed bg-neutral-950 p-3 rounded-xl border border-neutral-800">Este cliente ainda não comprou toras ou réguas neste celular offline.</span>
+                          <span className="text-[10px] text-zinc-500 block italic leading-relaxed bg-neutral-950 p-3 rounded-xl border border-neutral-800">
+                            Nenhum pedido ou orçamento salvo ainda para este cliente.
+                          </span>
                         ) : (
                           budgets.filter(b => b.clientId === selectedClient.id).map(b => (
-                            <div key={b.id} className="bg-neutral-950/90 p-2.5 rounded-xl border border-neutral-800/80 font-mono text-[10.5px] space-y-1.5 shadow-sm">
+                            <div key={b.id} className="bg-neutral-950 p-2.5 rounded-xl border border-neutral-800/80 font-mono text-xs space-y-1.5 shadow-sm">
                               <div className="flex justify-between items-center">
                                 <span className="font-extrabold text-zinc-200">{b.number}</span>
                                 <div className="flex items-center gap-2">
                                   <span className="text-emerald-400 font-bold">R$ {b.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                  <span className={`text-[7.5px] px-1.5 py-0.5 uppercase font-black rounded ${
+                                  <span className={`text-[8px] px-1.5 py-0.5 uppercase font-black rounded ${
                                     b.status === 'Vendido' ? 'bg-emerald-950 text-emerald-400 border border-emerald-900/30' :
                                     b.status === 'Aguardando Cliente' ? 'bg-amber-950 text-amber-500' : 'bg-neutral-800 text-zinc-400'
                                   }`}>{b.status}</span>
@@ -6401,25 +7507,8 @@ ${itemRows}
                                     setActiveTab('budgets');
                                   }}
                                   className="bg-amber-500/15 hover:bg-amber-500/30 border border-amber-500/40 text-amber-400 hover:text-amber-300 px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-tight flex items-center gap-1 cursor-pointer transition-colors"
-                                  title="Editar Orçamento e adicionar itens"
                                 >
                                   <span>✏️ Editar</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    startEditBudget(b);
-                                    setSelectedClient(null);
-                                    setActiveTab('products');
-                                    setProductsSubTab('cubagem');
-                                    setProdCalcMode('toras');
-                                    triggerNotification(`Orçamento ${b.number} pronto para receber toras!`);
-                                  }}
-                                  className="bg-indigo-500/20 hover:bg-indigo-500/35 border border-indigo-500/50 text-indigo-300 hover:text-indigo-200 px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-tight flex items-center gap-1 cursor-pointer transition-colors"
-                                  title="Cubar e embutir toras neste orçamento"
-                                >
-                                  <span>🪵 + Toras</span>
                                 </button>
                                 <button
                                   type="button"
@@ -6429,7 +7518,6 @@ ${itemRows}
                                     setSelectedClient(null);
                                   }}
                                   className="bg-neutral-800 hover:bg-neutral-750 text-zinc-300 px-2 py-1 rounded-lg text-[9px] font-bold uppercase tracking-tight cursor-pointer transition-colors"
-                                  title="Ver Orçamento"
                                 >
                                   <span>👁️ Ver</span>
                                 </button>
@@ -6441,11 +7529,13 @@ ${itemRows}
                     </div>
                   </div>
 
-                  <div className="space-y-2 mt-auto.5 pt-3 border-t border-neutral-800/80">
+                  <div className="space-y-2 pt-3 border-t border-neutral-800/80">
                     {showDeleteConfirm ? (
                       /* TWO-STEP WARNING OVERLAY */
-                      <div className="bg-rose-950/20 border border-rose-900/40 p-3 rounded-2xl flex flex-col gap-2.5 pt-3 animate-fade-in">
-                        <span className="text-[10.5px] font-bold text-rose-300 text-center block">⚠️ Excluir cliente permanentemente do banco de dados local? Todos os orçamentos perderão o vínculo.</span>
+                      <div className="bg-rose-950/30 border border-rose-900/50 p-3 rounded-2xl flex flex-col gap-2.5 animate-fade-in">
+                        <span className="text-xs font-bold text-rose-300 text-center block">
+                          ⚠️ Excluir cliente permanentemente? Esta ação apagará o cadastro no dispositivo.
+                        </span>
                         <div className="grid grid-cols-2 gap-2">
                           <button
                             type="button"
@@ -6469,12 +7559,14 @@ ${itemRows}
                     ) : (
                       /* ACTIVE CONTROLS */
                       <>
-                        <div className="bg-gradient-to-r from-emerald-950/20 to-neutral-950 p-2.5 rounded-xl border border-emerald-950/40 flex justify-between items-center mb-1.5">
+                        <div className="bg-gradient-to-r from-emerald-950/20 to-neutral-950 p-2.5 rounded-xl border border-emerald-950/40 flex justify-between items-center mb-1">
                           <div>
-                            <span className="text-[7.5px] uppercase text-emerald-400 block font-black tracking-wider">Total Acumulado de Compras</span>
-                            <span className="font-mono text-xs font-black text-zinc-250">R$ {selectedClient.totalSpent.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                            <span className="text-[8px] uppercase text-emerald-400 block font-black tracking-wider">Total Acumulado de Compras</span>
+                            <span className="font-mono text-xs font-black text-zinc-200">
+                              R$ {(selectedClient.totalSpent || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
                           </div>
-                          <Users className="w-5 h-5 text-emerald-800" />
+                          <Users className="w-4 h-4 text-emerald-500" />
                         </div>
 
                         <div className="grid grid-cols-2 gap-2.5">
@@ -6484,19 +7576,22 @@ ${itemRows}
                               setEditClientName(selectedClient.name);
                               setEditClientPhone(selectedClient.phone || '');
                               setEditClientAddress(selectedClient.address || '');
+                              setEditClientCity(selectedClient.city || '');
+                              setEditClientDocument(selectedClient.document || '');
+                              setEditClientType(selectedClient.clientType || 'PF');
                               setEditClientObs(selectedClient.observations || '');
                               setIsEditingClient(true);
                             }}
-                            className="bg-neutral-800 hover:bg-neutral-750 text-zinc-200 font-extrabold py-3.5 rounded-xl text-xs uppercase cursor-pointer flex items-center justify-center gap-1.5 border border-neutral-700/30 transition-all active:scale-95 select-none"
+                            className="bg-neutral-800 hover:bg-neutral-750 text-zinc-200 font-extrabold py-3 rounded-xl text-xs uppercase cursor-pointer flex items-center justify-center gap-1.5 border border-neutral-700/30 transition-all active:scale-95 select-none"
                           >
-                            <span>📝 Editar Ficha</span>
+                            <Edit3 className="w-3.5 h-3.5" /> Editar Ficha
                           </button>
                           <button
                             type="button"
                             onClick={() => setShowDeleteConfirm(true)}
-                            className="bg-rose-950/20 hover:bg-rose-900/35 border border-rose-900/40 text-rose-400 font-extrabold py-3.5 rounded-xl text-xs uppercase cursor-pointer flex items-center justify-center gap-1.5 transition-all active:scale-95 select-none"
+                            className="bg-rose-950/20 hover:bg-rose-900/35 border border-rose-900/40 text-rose-400 font-extrabold py-3 rounded-xl text-xs uppercase cursor-pointer flex items-center justify-center gap-1.5 transition-all active:scale-95 select-none"
                           >
-                            <span>🗑️ Excluir Dados</span>
+                            <Trash2 className="w-3.5 h-3.5" /> Excluir
                           </button>
                         </div>
                       </>
@@ -6630,24 +7725,37 @@ ${itemRows}
                     renderBlockCalculatorUI()
                   ) : (
                     /* Dynamic Wood Cubic M3 Huber calculator panel decoration */
-                    <div id="toras-calculator-export-card" className="bg-gradient-to-br from-indigo-950/40 via-neutral-950 to-neutral-950 p-4.5 sm:p-6 rounded-2xl border border-indigo-900/50 flex flex-col gap-5 shadow-2xl">
-                      <div className="flex justify-between items-center pb-3 border-b border-indigo-900/40">
+                    <div id="toras-calculator-export-card" className="bg-gradient-to-br from-indigo-950/40 via-neutral-950 to-neutral-950 p-4 sm:p-6 rounded-2xl border border-indigo-900/50 flex flex-col gap-5 shadow-2xl">
+                      {/* Header Title com botão de Zerar Medidas */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-indigo-900/40">
                         <div className="flex items-center gap-3">
-                          <div className="p-2.5 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400">
+                          <div className="p-2.5 rounded-xl bg-indigo-500/15 border border-indigo-500/30 text-indigo-400 shrink-0">
                             <Calculator className="w-6 h-6 stroke-[2.2]" />
                           </div>
                           <div>
-                            <span className="text-sm sm:text-base uppercase tracking-wider text-indigo-300 font-black font-sans block">
-                              Calculadora de Cubagem de Toras (Huber)
-                            </span>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-sm sm:text-base uppercase tracking-wider text-indigo-300 font-black font-sans block">
+                                Calculadora de Cubagem de Toras (Huber)
+                              </span>
+                              <span className="text-[10px] bg-indigo-900/80 text-indigo-200 px-2.5 py-0.5 rounded-lg border border-indigo-600/50 font-mono font-black uppercase">
+                                Fórmula Huber
+                              </span>
+                            </div>
                             <span className="text-xs text-zinc-300 font-medium block mt-0.5">
                               Cálculo de Volume Bruto de Madeira em Toras
                             </span>
                           </div>
                         </div>
-                        <span className="text-xs bg-indigo-900/80 text-indigo-200 px-3 py-1 rounded-xl border border-indigo-600/50 font-mono font-black uppercase">
-                          Fórmula Huber
-                        </span>
+
+                        <button
+                          type="button"
+                          onClick={resetTorasCalculator}
+                          className="self-start sm:self-center bg-neutral-900 hover:bg-neutral-800 text-indigo-300 hover:text-indigo-200 border border-indigo-500/40 hover:border-indigo-400 px-3 py-1.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer select-none shadow-sm"
+                          title="Limpar todos os campos e zerar as medidas da tora"
+                        >
+                          <RotateCcw className="w-3.5 h-3.5" />
+                          <span>Zerar Medidas</span>
+                        </button>
                       </div>
 
                       {/* STEP 1: Medidas da Tora */}
@@ -6667,7 +7775,7 @@ ${itemRows}
                               <button 
                                 type="button"
                                 onClick={() => {
-                                  const newL = String(Math.max(1, (parseFloat(calcLength) || 0) - 1));
+                                  const newL = String(Math.max(1, (parseFloat(calcLength) || 1) - 1));
                                   handleCubicCalcChange(calcDiameter, newL, calcProductPrice);
                                 }}
                                 className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
@@ -6678,6 +7786,7 @@ ${itemRows}
                                 type="number" 
                                 value={calcLength} 
                                 onChange={(e) => handleCubicCalcChange(calcDiameter, e.target.value, calcProductPrice)}
+                                placeholder="Ex: 4"
                                 className="w-full bg-neutral-950 border border-neutral-700 rounded-xl py-3 text-center font-mono text-lg text-indigo-300 outline-none font-extrabold focus:border-indigo-500"
                               />
                               <button 
@@ -6713,7 +7822,7 @@ ${itemRows}
                               <button 
                                 type="button"
                                 onClick={() => {
-                                  const newD = String(Math.max(10, (parseFloat(calcDiameter) || 0) - 5));
+                                  const newD = String(Math.max(10, (parseFloat(calcDiameter) || 10) - 5));
                                   handleCubicCalcChange(newD, calcLength, calcProductPrice);
                                 }}
                                 className="bg-neutral-800 text-zinc-100 w-12 h-12 rounded-xl text-xl flex items-center justify-center font-black hover:bg-neutral-700 active:scale-95 transition-all select-none cursor-pointer border border-neutral-700 shadow"
@@ -6724,6 +7833,7 @@ ${itemRows}
                                 type="number" 
                                 value={calcDiameter} 
                                 onChange={(e) => handleCubicCalcChange(e.target.value, calcLength, calcProductPrice)}
+                                placeholder="Ex: 30"
                                 className="w-full bg-neutral-950 border border-neutral-700 rounded-xl py-3 text-center font-mono text-lg text-indigo-300 outline-none font-extrabold focus:border-indigo-500"
                               />
                               <button 
@@ -6781,9 +7891,9 @@ ${itemRows}
                             </div>
                           </div>
 
-                          {/* PAINEL DE DESTAQUE MÁXIMO: METRAGEM TOTAL DE TORAS E VALOR ESTIMADO */}
+                          {/* PAINEL DE DESTAQUE: METRAGEM TOTAL DE TORAS E VALOR ESTIMADO */}
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
-                            {/* Metragem Total com Extremo Destaque */}
+                            {/* Metragem Total */}
                             <div className="bg-gradient-to-b from-indigo-950/80 via-neutral-900 to-neutral-950 border-2 border-indigo-500/90 p-4 sm:p-5 rounded-2xl shadow-2xl flex flex-col justify-between">
                               <div>
                                 <div className="flex items-center justify-between gap-2">
@@ -6795,20 +7905,24 @@ ${itemRows}
                                   </span>
                                 </div>
                                 <span className="text-xs text-zinc-300 font-medium block mt-1">
-                                  Volume cilíndrico médio da tora
+                                  {calcResult > 0 
+                                    ? 'Volume cilíndrico médio da tora' 
+                                    : 'Aguardando medidas da tora'}
                                 </span>
                               </div>
                               <div className="mt-3">
                                 <strong className="text-indigo-300 font-mono text-3xl sm:text-4xl lg:text-5xl font-black block tracking-tight drop-shadow-md">
-                                  {calcResult} m³
+                                  {calcResult.toFixed(3)} m³
                                 </strong>
                                 <span className="text-xs text-indigo-200/90 font-mono font-bold block mt-1.5">
-                                  Ø {calcDiameter}cm (diâm. meio) × {calcLength}m (comp)
+                                  {calcResult > 0 
+                                    ? `Ø ${calcDiameter}cm (diâm. meio) × ${calcLength}m (comp)` 
+                                    : 'Preencha o diâmetro e comprimento'}
                                 </span>
                               </div>
                             </div>
 
-                            {/* Valor Total com Extremo Destaque */}
+                            {/* Valor Total */}
                             <div className="bg-gradient-to-b from-emerald-950/80 via-neutral-900 to-neutral-950 border-2 border-emerald-500/90 p-4 sm:p-5 rounded-2xl shadow-2xl flex flex-col justify-between">
                               <div>
                                 <div className="flex items-center justify-between gap-2">
@@ -6828,7 +7942,9 @@ ${itemRows}
                                   R$ {(calcResult * calcProductPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                                 </span>
                                 <span className="text-xs text-emerald-300/90 font-mono font-bold block mt-1.5">
-                                  Cálculo exato por volume de tora roliça
+                                  {calcResult > 0 
+                                    ? 'Cálculo exato por volume de tora roliça' 
+                                    : 'Calculado automaticamente conforme metragem'}
                                 </span>
                               </div>
                             </div>
@@ -6836,77 +7952,112 @@ ${itemRows}
                         </div>
                       </div>
 
-                      {/* Botões Individuais de Exportação da Cubagem de Toras (PDF e PNG) */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-                        <button
-                          type="button"
-                          onClick={handleExportTorasPDF}
-                          className="bg-neutral-900 hover:bg-neutral-850 text-indigo-300 border-2 border-indigo-600/60 hover:border-indigo-500 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-lg"
-                          title="Exportar Cubagem de Toras em PDF com metragem e valor total destacados"
-                        >
-                          <FileDown className="w-4 h-4 text-indigo-400 stroke-[2.5]" />
-                          <span>📄 Exportar Cubagem Toras (PDF)</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleExportTorasPNG}
-                          className="bg-neutral-900 hover:bg-neutral-850 text-emerald-300 border-2 border-emerald-600/60 hover:border-emerald-500 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-lg"
-                          title="Exportar Cubagem de Toras em Imagem PNG de alta definição"
-                        >
-                          <Share2 className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
-                          <span>📸 Exportar Cubagem Toras (PNG)</span>
-                        </button>
-                      </div>
-
-                      {/* BOTÃO EM DESTAQUE: EMBUTIR ESTA TORA NO ORÇAMENTO DO CLIENTE */}
-                      <div className="bg-gradient-to-r from-amber-950/70 via-neutral-900 to-neutral-950 border-2 border-amber-500 p-4 rounded-2xl shadow-2xl flex flex-col sm:flex-row items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 w-full sm:w-auto">
-                          <div className="w-11 h-11 rounded-xl bg-amber-500 text-neutral-950 flex items-center justify-center font-black shrink-0 shadow-md">
-                            <Receipt className="w-6 h-6 stroke-[2.5]" />
-                          </div>
-                          <div>
-                            <span className="text-xs sm:text-sm font-black text-amber-400 block uppercase tracking-wide">
-                              📥 Embutir Tora no Orçamento do Cliente
-                            </span>
-                            <span className="text-[11px] text-zinc-300 block mt-0.5">
-                              {editingBudgetId 
-                                ? `Adicionar direto ao orçamento ativo de ${bSelectedClient?.name || bNewClientName || 'Cliente'}` 
-                                : 'Adicione a um orçamento existente ou crie um novo orçamento'}
-                            </span>
-                          </div>
+                      {/* STEP 3: AÇÕES DA TORA ATUAL (Posicionamento Ergonômico de Alta Precisão) */}
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-6 h-6 rounded-full bg-indigo-500 text-white font-black text-xs flex items-center justify-center">3</span>
+                          <span className="text-xs sm:text-sm font-extrabold uppercase text-indigo-200 tracking-wide">
+                            Ações da Tora Atual
+                          </span>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => openAttachWoodModal('current_tora')}
-                          className="w-full sm:w-auto bg-amber-500 hover:bg-amber-400 text-neutral-950 font-black py-3.5 px-5 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-xl shadow-amber-950/50 select-none shrink-0"
-                        >
-                          <span>Adicionar ao Orçamento</span>
-                          <ChevronRight className="w-4 h-4 stroke-[3]" />
-                        </button>
-                      </div>
 
-                      {/* Addition actions */}
-                      <div className="flex flex-col sm:flex-row gap-3">
-                        <button
-                          type="button"
-                          onClick={addToraToHistory}
-                          className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-black py-4 px-5 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer border border-indigo-500 shadow-lg shadow-indigo-950/30"
-                        >
-                          ➕ Adicionar Tora ao Histórico
-                        </button>
-                        {calcHistory.length > 0 && (
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          {/* Ação 1: Adicionar ao Histórico */}
                           <button
                             type="button"
-                            onClick={clearCalcHistory}
-                            className="bg-neutral-900 border border-neutral-700 hover:bg-red-950/50 hover:text-red-300 text-zinc-300 font-extrabold px-5 py-4 rounded-xl text-xs sm:text-sm cursor-pointer transition-all active:scale-[0.98]"
-                            title="Excluir Histórico de m³"
+                            onClick={addToraToHistory}
+                            className="bg-indigo-600 hover:bg-indigo-500 text-white font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer border border-indigo-500 shadow-lg shadow-indigo-950/30 select-none"
                           >
-                            🗑️ Limpar Histórico
+                            <PlusCircle className="w-4 h-4 stroke-[2.5]" />
+                            <span>Guardar no Romaneio</span>
                           </button>
-                        )}
+
+                          {/* Ação 2: Embutir no Orçamento do Cliente */}
+                          <button
+                            type="button"
+                            onClick={() => openAttachWoodModal('current_tora')}
+                            className="bg-neutral-900 hover:bg-neutral-850 text-amber-300 border-2 border-amber-500/60 hover:border-amber-400 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer select-none shadow-md"
+                            title="Vincular e transferir esta tora direto para o orçamento do cliente"
+                          >
+                            <Receipt className="w-4 h-4 text-amber-400 stroke-[2.5]" />
+                            <span>Embutir no Orçamento</span>
+                          </button>
+
+                          {/* Ação 3: Zerar Medidas */}
+                          <button
+                            type="button"
+                            onClick={resetTorasCalculator}
+                            className="bg-neutral-900 hover:bg-neutral-800 text-zinc-300 hover:text-white border border-neutral-700 font-extrabold py-3.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer select-none"
+                            title="Limpar campos e zerar medidas da tora"
+                          >
+                            <RotateCcw className="w-4 h-4" />
+                            <span>Zerar Medidas</span>
+                          </button>
+                        </div>
                       </div>
 
-                      {/* History list (NO inner scroll trap!) */}
+                      {/* STEP 4: DOCUMENTO COMERCIAL & EXPORTAÇÃO DO ORÇAMENTO (Alinhamento Perfeito) */}
+                      <div className="bg-neutral-950 p-4 rounded-2xl border border-neutral-800 space-y-3 shadow-md">
+                        <div className="flex items-center justify-between pb-2 border-b border-neutral-850">
+                          <div className="flex items-center gap-2">
+                            <FileText className="w-4 h-4 text-indigo-400" />
+                            <span className="text-xs font-black uppercase text-indigo-300 tracking-wider">
+                              Orçamento Comercial & Exportação
+                            </span>
+                          </div>
+                          <span className="text-[11px] text-zinc-400 font-medium hidden sm:inline-block">
+                            Romaneio limpo com histórico, m³ e valor final
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                          {/* 1. Ver Orçamento */}
+                          <button
+                            type="button"
+                            onClick={() => setShowTorasQuoteModal(true)}
+                            className="bg-neutral-900 hover:bg-neutral-850 text-indigo-300 border border-indigo-600/50 hover:border-indigo-400 font-black py-3 px-3 rounded-xl text-xs uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                            title="Visualizar documento oficial de orçamento de toras"
+                          >
+                            <Eye className="w-4 h-4 stroke-[2.5]" />
+                            <span>Ver Orçamento</span>
+                          </button>
+
+                          {/* 2. Baixar PDF */}
+                          <button
+                            type="button"
+                            onClick={handleExportTorasPDF}
+                            className="bg-neutral-900 hover:bg-neutral-850 text-indigo-300 border border-indigo-600/50 hover:border-indigo-400 font-black py-3 px-3 rounded-xl text-xs uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                            title="Baixar documento de orçamento em PDF formatado"
+                          >
+                            <FileDown className="w-4 h-4 text-indigo-400 stroke-[2.5]" />
+                            <span>Orçamento (PDF)</span>
+                          </button>
+
+                          {/* 3. Baixar PNG */}
+                          <button
+                            type="button"
+                            onClick={handleExportTorasPNG}
+                            className="bg-neutral-900 hover:bg-neutral-850 text-emerald-300 border border-emerald-600/50 hover:border-emerald-400 font-black py-3 px-3 rounded-xl text-xs uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                            title="Exportar imagem nítida em PNG do orçamento limpo"
+                          >
+                            <Share2 className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
+                            <span>Orçamento (PNG)</span>
+                          </button>
+
+                          {/* 4. WhatsApp */}
+                          <button
+                            type="button"
+                            onClick={handleCopyTorasWhatsApp}
+                            className="bg-neutral-900 hover:bg-neutral-850 text-emerald-300 border border-emerald-600/50 hover:border-emerald-400 font-black py-3 px-3 rounded-xl text-xs uppercase tracking-wider transition-all active:scale-[0.98] flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                            title="Copiar orçamento com formatação profissional para o WhatsApp"
+                          >
+                            <MessageCircle className="w-4 h-4 text-emerald-400 stroke-[2.5]" />
+                            <span>WhatsApp</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* STEP 5: HISTÓRICO DE TORAS SALVAS */}
                       {calcHistory.length > 0 && (() => {
                         const totalM3 = parseFloat(calcHistory.reduce((sum, h) => sum + h.volume, 0).toFixed(3));
                         const totalReaisStable = Math.round(calcHistory.reduce((sum, h) => sum + h.value, 0) * 100) / 100;
@@ -6915,10 +8066,19 @@ ${itemRows}
                         return (
                           <div className="bg-neutral-950 p-4 sm:p-5 rounded-2xl border border-indigo-900/50 font-sans space-y-4 shadow-xl">
                             <div className="flex justify-between items-center pb-3 border-b border-indigo-900/40">
-                              <span className="text-xs sm:text-sm text-indigo-300 uppercase font-black tracking-wider">Histórico de Toras ({calcHistory.length})</span>
+                              <div className="flex items-center gap-2">
+                                <Layers className="w-5 h-5 text-indigo-400" />
+                                <span className="text-xs sm:text-sm text-indigo-300 uppercase font-black tracking-wider">
+                                  Romaneio Salvo ({calcHistory.length} Tora{calcHistory.length > 1 ? 's' : ''})
+                                </span>
+                              </div>
                               <div className="text-right flex flex-col leading-tight">
-                                <span className="text-sm font-mono text-emerald-400 font-black">Total: R$ {totalReaisStable.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                <span className="text-xs font-mono text-indigo-300 font-bold mt-0.5">{totalM3.toFixed(3)} m³ total</span>
+                                <span className="text-sm font-mono text-emerald-400 font-black">
+                                  Total: R$ {totalReaisStable.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                </span>
+                                <span className="text-xs font-mono text-indigo-300 font-bold mt-0.5">
+                                  {totalM3.toFixed(3)} m³ total
+                                </span>
                               </div>
                             </div>
 
@@ -6931,7 +8091,7 @@ ${itemRows}
                                     <span className="text-indigo-300 font-bold bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">({h.volume.toFixed(3)} m³)</span>
                                   </div>
                                   <div className="flex items-center gap-3">
-                                    <span className="text-amber-400 font-extrabold text-sm sm:text-base">R$ {h.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                                    <span className="text-emerald-400 font-black text-sm sm:text-base">R$ {h.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
                                     <button
                                       type="button"
                                       onClick={() => {
@@ -6961,15 +8121,24 @@ ${itemRows}
                               </button>
                             )}
 
-                            {/* Botão de Enviar Todas as Toras ao Orçamento do Cliente */}
-                            <div className="pt-2 border-t border-indigo-900/40">
+                            {/* Barra de Ações em Lote do Romaneio */}
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-indigo-900/40">
                               <button
                                 type="button"
                                 onClick={() => openAttachWoodModal('history_toras')}
-                                className="w-full bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-neutral-950 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-xl active:scale-[0.98] transition-all select-none"
+                                className="sm:col-span-2 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-neutral-950 font-black py-3.5 px-4 rounded-xl text-xs sm:text-sm uppercase tracking-wider flex items-center justify-center gap-2 cursor-pointer shadow-xl active:scale-[0.98] transition-all select-none"
                               >
                                 <Receipt className="w-4 h-4 stroke-[2.5]" />
-                                <span>📥 Injetar Todas as {calcHistory.length} Toras no Orçamento do Cliente</span>
+                                <span>📥 Transferir Romaneio Completo para o Orçamento</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={clearCalcHistory}
+                                className="bg-neutral-900 hover:bg-rose-950/50 hover:text-rose-300 text-zinc-400 hover:border-rose-800/60 border border-neutral-700 font-bold py-3.5 px-3 rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-[0.98]"
+                                title="Excluir Histórico de m³"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                <span>Limpar Romaneio</span>
                               </button>
                             </div>
                           </div>
@@ -7010,22 +8179,123 @@ ${itemRows}
                     />
                   </div>
 
+                  {/* Category Filter Pills for Catalog */}
+                  <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-0.5 text-xs font-bold">
+                    {[
+                      { id: 'all', label: 'Todas as Madeiras' },
+                      { id: 'tabuas', label: '📐 Tábuas & Pranchas' },
+                      { id: 'toras', label: '🪵 Toras Roliças' },
+                      { id: 'vigas', label: '📏 Vigas & Peças' },
+                      { id: 'servicos', label: '⚙️ Serviços & Mão de Obra' },
+                    ].map(tab => (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => setCatalogCategoryFilter(tab.id as any)}
+                        className={`px-3 py-1.5 rounded-lg border whitespace-nowrap transition-all cursor-pointer text-xs ${
+                          catalogCategoryFilter === tab.id
+                            ? 'bg-amber-500 text-neutral-950 font-black border-amber-400 shadow-sm'
+                            : 'bg-neutral-950 text-zinc-400 border-neutral-800 hover:text-zinc-200'
+                        }`}
+                      >
+                        {tab.label}
+                      </button>
+                    ))}
+                  </div>
+
               {/* Grid-style table items */}
               <div className="space-y-2.5 mt-0.5">
                 {filteredProducts.map(p => (
-                  <div key={p.id} className="p-3.5 bg-neutral-950 rounded-xl border border-neutral-800 flex flex-col gap-2.5 shadow-sm hover:border-neutral-750 transition-colors">
+                  <div key={p.id} className="p-3.5 bg-neutral-950 rounded-2xl border border-neutral-800/80 flex flex-col gap-2.5 shadow-sm hover:border-amber-500/40 transition-colors">
                     <div className="flex justify-between items-start gap-2 w-full">
                       <div className="flex-1 min-w-0 pr-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-mono font-bold text-zinc-500 bg-neutral-900 border border-neutral-850 px-1.5 py-0.5 rounded">{p.code}</span>
-                          <span className="px-2 py-0.5 bg-neutral-900 text-zinc-300 font-mono font-extrabold text-[10px] rounded-lg border border-neutral-850">{p.unit}</span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="text-[10px] font-mono font-bold text-zinc-400 bg-neutral-900 border border-neutral-800 px-1.5 py-0.5 rounded">{p.code}</span>
+                          <span className="px-2 py-0.5 bg-neutral-900 text-amber-400 font-mono font-extrabold text-[10px] rounded border border-neutral-800">{p.unit}</span>
+                          {p.category && (
+                            <span className="text-[9px] uppercase font-bold text-zinc-400 bg-neutral-900/80 px-1.5 py-0.5 rounded border border-neutral-800">
+                              {p.category}
+                            </span>
+                          )}
                         </div>
-                        <h4 className="font-extrabold text-zinc-200 text-xs sm:text-sm mt-1.5 truncate tracking-tight">{p.name}</h4>
-                        <p className="text-[11px] text-zinc-500 line-clamp-1 mt-1 leading-snug">{p.description}</p>
+                        <h4 className="font-extrabold text-zinc-100 text-xs sm:text-sm mt-1.5 truncate tracking-tight">{p.name}</h4>
+                        {p.description && (
+                          <p className="text-[11px] text-zinc-400 line-clamp-1 mt-0.5 leading-snug">{p.description}</p>
+                        )}
+                        {/* Dimensions indicator pill if available */}
+                        {(p.thickness || p.width || p.length || p.diameter) && (
+                          <div className="mt-1.5 flex items-center gap-2 text-[10px] font-mono text-zinc-400">
+                            {p.thickness && p.width && (
+                              <span className="bg-neutral-900 px-1.5 py-0.5 rounded border border-neutral-850">
+                                📐 {p.thickness} × {p.width} cm
+                              </span>
+                            )}
+                            {p.diameter && (
+                              <span className="bg-neutral-900 px-1.5 py-0.5 rounded border border-neutral-850">
+                                🪵 Ø {p.diameter} cm
+                              </span>
+                            )}
+                            {p.length && (
+                              <span className="bg-neutral-900 px-1.5 py-0.5 rounded border border-neutral-850">
+                                📏 {p.length} m
+                              </span>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div className="text-right shrink-0 flex flex-col justify-between h-full min-h-[50px]">
-                        <div className="text-amber-500 font-mono font-black text-xs sm:text-sm">R$ {p.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</div>
-                        <span className="text-[9px] text-zinc-500 block uppercase font-bold mt-0.5">{p.unit === 'CM' ? 'por cm de largura' : `por ${p.unit.toLowerCase()}`}</span>
+
+                      <div className="text-right shrink-0 flex flex-col justify-between items-end h-full min-h-[50px]">
+                        {/* Inline price edit or quick click to edit */}
+                        {inlineEditingProductId === p.id ? (
+                          <div className="flex items-center gap-1 bg-neutral-900 p-1 rounded-xl border border-amber-500 shadow-md">
+                            <span className="text-[10px] text-zinc-400 font-mono font-bold pl-1">R$</span>
+                            <input
+                              type="number"
+                              step="0.01"
+                              autoFocus
+                              value={inlinePriceValue}
+                              onChange={(e) => setInlinePriceValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') handleSaveInlinePrice(p.id);
+                                if (e.key === 'Escape') setInlineEditingProductId(null);
+                              }}
+                              className="w-20 bg-neutral-950 border border-neutral-700 rounded-lg p-1 text-xs font-mono font-bold text-amber-400 outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleSaveInlinePrice(p.id)}
+                              className="bg-emerald-500 hover:bg-emerald-400 text-neutral-950 p-1 rounded-lg text-xs font-black cursor-pointer"
+                              title="Salvar novo preço"
+                            >
+                              ✓
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setInlineEditingProductId(null)}
+                              className="bg-neutral-800 hover:bg-neutral-700 text-zinc-400 p-1 rounded-lg text-xs font-bold cursor-pointer"
+                              title="Cancelar"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ) : (
+                          <div 
+                            onClick={() => {
+                              setInlineEditingProductId(p.id);
+                              setInlinePriceValue(String(p.price));
+                            }}
+                            className="group/price cursor-pointer text-right flex flex-col items-end"
+                            title="Clique para editar o preço rapidamente"
+                          >
+                            <div className="text-amber-400 font-mono font-black text-xs sm:text-sm flex items-center gap-1 hover:text-amber-300">
+                              <span>R$ {p.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+                              <Edit3 className="w-2.5 h-2.5 opacity-40 group-hover/price:opacity-100 transition-opacity" />
+                            </div>
+                            <span className="text-[9px] text-zinc-500 block uppercase font-bold mt-0.5">
+                              {p.unit === 'CM' ? 'por cm de largura' : `por ${p.unit.toLowerCase()}`}
+                            </span>
+                          </div>
+                        )}
                         
                         {p.unit === 'M3' && (
                           <button 
@@ -7038,8 +8308,146 @@ ${itemRows}
                       </div>
                     </div>
 
+                    {/* IN-CARD QUICK EDIT PANEL */}
+                    {quickEditProductId === p.id && (
+                      <div className="bg-neutral-900/90 border border-amber-500/50 rounded-xl p-3 space-y-2.5 mt-1 animate-fade-in">
+                        <div className="flex items-center justify-between border-b border-neutral-800 pb-1.5">
+                          <span className="text-[10px] uppercase font-black tracking-wide text-amber-400 flex items-center gap-1">
+                            <Edit3 className="w-3 h-3" /> Edição Rápida no Catálogo
+                          </span>
+                          <span className="text-[9px] font-mono text-zinc-400">SKU: {p.code}</span>
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[9px] font-bold text-zinc-400 uppercase block mb-0.5">Nome do Item</label>
+                            <input
+                              type="text"
+                              value={quickEditName}
+                              onChange={(e) => setQuickEditName(e.target.value)}
+                              className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-zinc-100 font-bold outline-none focus:border-amber-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-bold text-zinc-400 uppercase block mb-0.5">Preço Unitário (R$)</label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={quickEditPrice}
+                              onChange={(e) => setQuickEditPrice(e.target.value)}
+                              className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2.5 py-1.5 text-xs text-amber-400 font-mono font-black outline-none focus:border-amber-500"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Dimensions row if applicable */}
+                        {(p.unit === 'TABUA' || p.unit === 'PRANCHA' || p.unit === 'M' || p.unit === 'M3') && (
+                          <div className="grid grid-cols-3 gap-2 pt-1 border-t border-neutral-850">
+                            {p.unit === 'M3' ? (
+                              <div>
+                                <label className="text-[9px] font-bold text-zinc-400 uppercase block mb-0.5">Diâmetro (cm)</label>
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  value={quickEditDiameter}
+                                  onChange={(e) => setQuickEditDiameter(e.target.value)}
+                                  className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-xs text-zinc-100 font-mono outline-none focus:border-amber-500"
+                                />
+                              </div>
+                            ) : (
+                              <div>
+                                <label className="text-[9px] font-bold text-zinc-400 uppercase block mb-0.5">Espessura (cm)</label>
+                                <input
+                                  type="number"
+                                  step="0.5"
+                                  value={quickEditThickness}
+                                  onChange={(e) => setQuickEditThickness(e.target.value)}
+                                  className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-xs text-zinc-100 font-mono outline-none focus:border-amber-500"
+                                />
+                              </div>
+                            )}
+                            <div>
+                              <label className="text-[9px] font-bold text-zinc-400 uppercase block mb-0.5">Largura (cm)</label>
+                              <input
+                                type="number"
+                                step="0.5"
+                                disabled={p.unit === 'M3' || p.unit === 'M'}
+                                value={quickEditWidth}
+                                onChange={(e) => setQuickEditWidth(e.target.value)}
+                                className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-xs text-zinc-100 font-mono outline-none focus:border-amber-500 disabled:opacity-30"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-[9px] font-bold text-zinc-400 uppercase block mb-0.5">Comprim. (m)</label>
+                              <input
+                                type="number"
+                                step="0.1"
+                                value={quickEditLength}
+                                onChange={(e) => setQuickEditLength(e.target.value)}
+                                className="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-2 py-1 text-xs text-zinc-100 font-mono outline-none focus:border-amber-500"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="flex justify-end gap-2 pt-2 border-t border-neutral-850">
+                          <button
+                            type="button"
+                            onClick={() => setQuickEditProductId(null)}
+                            className="bg-neutral-800 hover:bg-neutral-750 text-zinc-300 px-3 py-1.5 rounded-lg text-xs font-bold cursor-pointer transition-colors"
+                          >
+                            Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSaveQuickEditProduct(p.id)}
+                            className="bg-amber-500 hover:bg-amber-400 text-neutral-950 px-4 py-1.5 rounded-lg text-xs font-black uppercase cursor-pointer transition-all active:scale-95 shadow-sm"
+                          >
+                            ✓ Salvar Item
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Action buttons to edit/delete wood products */}
-                    <div className="flex gap-4 pt-2 border-t border-neutral-900/60 w-full justify-end">
+                    <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3 pt-2 border-t border-neutral-900 w-full">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (quickEditProductId === p.id) {
+                            setQuickEditProductId(null);
+                          } else {
+                            setQuickEditProductId(p.id);
+                            setQuickEditName(p.name);
+                            setQuickEditCode(p.code);
+                            setQuickEditPrice(String(p.price));
+                            setQuickEditUnit(p.unit);
+                            setQuickEditThickness(p.thickness !== undefined ? String(p.thickness) : '');
+                            setQuickEditWidth(p.width !== undefined ? String(p.width) : '');
+                            setQuickEditLength(p.length !== undefined ? String(p.length) : '');
+                            setQuickEditDiameter(p.diameter !== undefined ? String(p.diameter) : '');
+                          }
+                        }}
+                        className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg border transition-all cursor-pointer select-none ${
+                          quickEditProductId === p.id
+                            ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                            : 'bg-neutral-900 border-neutral-800 text-zinc-300 hover:text-amber-400'
+                        }`}
+                        title="Ajuste rápido de nome, preço e medidas"
+                      >
+                        <Edit3 className="w-3 h-3 stroke-[2.5]" />
+                        <span>{quickEditProductId === p.id ? 'Fechar Edição' : 'Edição Rápida'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleDuplicateProduct(p)}
+                        className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg bg-neutral-900 border border-neutral-800 text-zinc-300 hover:text-indigo-400 cursor-pointer select-none transition-colors"
+                        title="Criar cópia para nova medida ou variação"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>Duplicar</span>
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => {
@@ -7048,20 +8456,30 @@ ${itemRows}
                           setEditProdCode(p.code);
                           setEditProdUnit(p.unit);
                           setEditProdPrice(String(p.price));
-                          setEditProdDesc(p.description);
+                          setEditProdDesc(p.description || '');
+                          setEditProdCategory(p.category || 'serrada');
+                          setEditProdThickness(p.thickness !== undefined ? String(p.thickness) : '');
+                          setEditProdWidth(p.width !== undefined ? String(p.width) : '');
+                          setEditProdLength(p.length !== undefined ? String(p.length) : '');
+                          setEditProdDiameter(p.diameter !== undefined ? String(p.diameter) : '');
                         }}
-                        className="flex items-center gap-1 text-[10.5px] text-amber-500 font-extrabold hover:text-amber-400 cursor-pointer select-none"
+                        className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg bg-neutral-900 border border-neutral-800 text-amber-400 hover:text-amber-300 cursor-pointer select-none transition-colors"
+                        title="Editar todos os campos e especificações"
                       >
-                        <Edit className="w-3.5 h-3.5 stroke-[2.5]" /> Editar
+                        <Settings2 className="w-3 h-3" />
+                        <span>Ficha Completa</span>
                       </button>
+
                       <button
                         type="button"
                         onClick={() => {
                           setProductToDelete(p);
                         }}
-                        className="flex items-center gap-1 text-[10.5px] text-rose-500 font-extrabold hover:text-rose-450 cursor-pointer select-none"
+                        className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-lg bg-neutral-900/60 border border-neutral-800 text-rose-500 hover:text-rose-400 cursor-pointer select-none transition-colors ml-auto sm:ml-0"
+                        title="Excluir material do catálogo"
                       >
-                        <Trash2 className="w-3.5 h-3.5 stroke-[2.5]" /> Excluir
+                        <Trash2 className="w-3 h-3" />
+                        <span>Excluir</span>
                       </button>
                     </div>
                   </div>
@@ -9471,225 +10889,101 @@ ${itemRows}
                     </button>
                   </div>
 
-                  {/* Real-time Detailed Basket List (Cesta de Materiais) */}
-                  {bItems.length > 0 && (
-                    <div className="bg-neutral-950 p-4 rounded-xl border border-neutral-800 space-y-3 max-h-[350px] flex flex-col shrink-0 shadow-lg">
-                      <div className="flex justify-between items-center text-xs sm:text-sm uppercase font-black text-amber-500">
-                        <span>📋 Itens na Cesta ({bItems.length})</span>
-                        <span className="font-mono text-zinc-150 font-black">Total: R$ {calculatedSubtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                      </div>
-                      <div className="flex-1 overflow-y-auto space-y-1.5 pr-0.5">
-                        {bItems.map((item, idx) => {
-                          let qtyText = '';
-                          let itemTotal = 0;
-                          
-                          if (item.product.unit === 'M3' && item.diameter && item.length) {
-                            const singleVol = parseCubicMeters(item.diameter, item.length);
-                            const pcs = Math.round(item.quantity / (singleVol || 1));
-                            qtyText = `${pcs} pçs (Ø${item.diameter}cm x ${item.length}m = ${item.quantity.toFixed(3)}m³)`;
-                            itemTotal = item.product.price * item.quantity;
-                          } else if (item.product.unit === 'M3_BLOCO' && item.thickness && item.width && item.length) {
-                            const singleVol = (item.thickness * item.width * item.length) / 10000;
-                            qtyText = `${item.quantity} pçs de Bloco (${item.thickness}x${item.width}cm x ${item.length}m = ${(singleVol * item.quantity).toFixed(3)}m³)`;
-                            itemTotal = singleVol * item.product.price * item.quantity;
-                          } else if ((item.product.unit === 'TABUA' || item.product.unit === 'PRANCHA') && item.width && item.length) {
-                            qtyText = `${item.quantity} pçs (${item.width}cm x ${item.length}m)`;
-                            itemTotal = item.width * item.product.price * item.length * item.quantity;
-                          } else if (item.product.unit === 'M' && item.length) {
-                            qtyText = `${item.quantity} pçs (${item.length}m)`;
-                            itemTotal = item.product.price * item.length * item.quantity;
-                          } else if (item.product.unit === 'HORA') {
-                            qtyText = `${item.quantity} hr(s) de máquina`;
-                            itemTotal = item.product.price * item.quantity;
-                          } else if (item.product.unit === 'M2') {
-                            qtyText = `${item.quantity} m²`;
-                            itemTotal = item.product.price * item.quantity;
-                          } else if (item.product.unit === 'MIL') {
-                            qtyText = `${item.quantity} pçs (${(item.quantity / 1000).toFixed(2)} milheiros)`;
-                            itemTotal = item.product.price * (item.quantity / 1000);
-                          } else if (item.product.unit === 'ST') {
-                            qtyText = `${item.quantity} st (Metro Estéreo)`;
-                            itemTotal = item.product.price * item.quantity;
-                          } else if (item.product.unit === 'KG') {
-                            qtyText = `${item.quantity} kg`;
-                            itemTotal = item.product.price * item.quantity;
-                          } else if (item.product.unit === 'TON') {
-                            qtyText = `${item.quantity} ton`;
-                            itemTotal = item.product.price * item.quantity;
-                          } else if (item.product.unit === 'DIARIA') {
-                            qtyText = `${item.quantity} diária(s)`;
-                            itemTotal = item.product.price * item.quantity;
-                          } else {
-                            qtyText = `${item.quantity} pçs`;
-                            itemTotal = item.product.price * item.quantity;
-                          }
-
-                          return (
-                            <div key={idx} className="flex flex-col bg-neutral-900 border border-neutral-800 p-3.5 rounded-xl text-xs transition-all focus-within:ring-2 focus-within:ring-amber-550 gap-2.5">
-                              <div className="flex justify-between items-start gap-2">
-                                <div className="min-w-0 flex-1">
-                                  <span className="font-black text-zinc-100 block truncate leading-tight text-sm">{item.product.name}</span>
-                                  <span className="font-mono text-zinc-400 text-xs block mt-1">{qtyText}</span>
-                                </div>
-                                <div className="flex items-center gap-3 shrink-0 ml-3">
-                                  <span className="font-mono font-black text-yellow-500 text-sm">R$ {itemTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                  <button 
-                                    type="button"
-                                    onClick={() => {
-                                      setBItems(bItems.filter((_, i) => i !== idx));
-                                      triggerNotification(`Removido: ${item.product.name}`);
-                                    }}
-                                    className="p-1 px-1.5 hover:bg-red-950/40 text-zinc-400 hover:text-red-400 rounded-lg transition-colors cursor-pointer"
-                                    title="Remover Item"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </div>
-                              
-                              <div className="flex items-center justify-between border-t border-neutral-800/80 pt-2 mt-0.5">
-                                <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Ajustar Peças:</span>
-                                <div className="flex items-center gap-1.5 bg-black/45 px-2 py-0.5 rounded-lg border border-neutral-800/50">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const singleVol = (item.product.unit === 'M3' && item.diameter && item.length)
-                                        ? parseCubicMeters(item.diameter, item.length)
-                                        : 1;
-                                      
-                                      const currentPcs = item.product.unit === 'M3'
-                                        ? Math.round(item.quantity / (singleVol || 1))
-                                        : item.quantity;
-
-                                      const nextPcs = Math.max(1, currentPcs - 1);
-                                      
-                                      setBItems(prev => prev.map((it, i) => {
-                                        if (i !== idx) return it;
-                                        if (it.product.unit === 'M3') {
-                                          return { ...it, quantity: singleVol * nextPcs };
-                                        } else {
-                                          return { ...it, quantity: nextPcs };
-                                        }
-                                      }));
-                                    }}
-                                    className="w-5.5 h-5.5 rounded bg-neutral-950 border border-neutral-800 text-zinc-300 font-bold flex items-center justify-center text-xs hover:bg-neutral-800 select-none cursor-pointer"
-                                  >
-                                    -
-                                  </button>
-                                  
-                                  <input
-                                    type="text"
-                                    inputMode="numeric"
-                                    pattern="[0-9]*"
-                                    value={
-                                      item.product.unit === 'M3'
-                                        ? (item.quantity === 0 ? '' : Math.round(item.quantity / ((item.diameter && item.length ? parseCubicMeters(item.diameter, item.length) : 1) || 1)))
-                                        : (item.quantity === 0 ? '' : item.quantity)
-                                    }
-                                    onFocus={(e) => e.target.select()}
-                                    onChange={(e) => {
-                                      const rawVal = e.target.value.replace(/\D/g, '');
-                                      const parsed = parseInt(rawVal, 10) || 0;
-                                      
-                                      const singleVol = (item.product.unit === 'M3' && item.diameter && item.length)
-                                        ? parseCubicMeters(item.diameter, item.length)
-                                        : 1;
-                                      
-                                      setBItems(prev => prev.map((it, i) => {
-                                        if (i !== idx) return it;
-                                        if (it.product.unit === 'M3') {
-                                          return { ...it, quantity: singleVol * parsed };
-                                        } else {
-                                          return { ...it, quantity: parsed };
-                                        }
-                                      }));
-                                    }}
-                                    onBlur={() => {
-                                      const singleVol = (item.product.unit === 'M3' && item.diameter && item.length)
-                                        ? parseCubicMeters(item.diameter, item.length)
-                                        : 1;
-                                      
-                                      const currentPcs = item.product.unit === 'M3'
-                                        ? Math.round(item.quantity / (singleVol || 1))
-                                        : item.quantity;
-                                      
-                                      if (currentPcs <= 0) {
-                                        setBItems(prev => prev.map((it, i) => {
-                                          if (i !== idx) return it;
-                                          if (it.product.unit === 'M3') {
-                                            return { ...it, quantity: singleVol * 1 };
-                                          } else {
-                                            return { ...it, quantity: 1 };
-                                          }
-                                        }));
-                                      }
-                                    }}
-                                    className="w-18 h-6 bg-neutral-950 border border-neutral-800 rounded font-mono text-zinc-100 font-extrabold text-center text-[10.5px] outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
-                                    placeholder="0"
-                                  />
-                                  
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const singleVol = (item.product.unit === 'M3' && item.diameter && item.length)
-                                        ? parseCubicMeters(item.diameter, item.length)
-                                        : 1;
-                                      
-                                      const currentPcs = item.product.unit === 'M3'
-                                        ? Math.round(item.quantity / (singleVol || 1))
-                                        : item.quantity;
-
-                                      const nextPcs = currentPcs + 1;
-                                      
-                                      setBItems(prev => prev.map((it, i) => {
-                                        if (i !== idx) return it;
-                                        if (it.product.unit === 'M3') {
-                                          return { ...it, quantity: singleVol * nextPcs };
-                                        } else {
-                                          return { ...it, quantity: nextPcs };
-                                        }
-                                      }));
-                                    }}
-                                    className="w-5.5 h-5.5 rounded bg-neutral-950 border border-neutral-800 text-zinc-300 font-bold flex items-center justify-center text-xs hover:bg-neutral-800 select-none cursor-pointer"
-                                  >
-                                    +
-                                  </button>
-                                  <span className="text-[9px] text-zinc-500 font-extrabold ml-1 uppercase">pçs</span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                  {/* Search Bar & Category Filter Pills */}
+                  <div className="space-y-2 shrink-0">
+                    <div className="relative">
+                      <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-3.5" />
+                      <input 
+                        type="text"
+                        value={wStep2Search}
+                        onChange={(e) => setWStep2Search(e.target.value)}
+                        placeholder="Buscar madeira por nome, bitola ou código SKU..."
+                        className="w-full bg-neutral-950 border border-neutral-800 rounded-xl pl-10 pr-9 py-2.5 text-xs sm:text-sm outline-none text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-medium"
+                      />
+                      {wStep2Search && (
+                        <button 
+                          onClick={() => setWStep2Search('')}
+                          className="absolute right-3 top-2.5 text-zinc-500 hover:text-zinc-300 text-xs font-bold p-0.5"
+                        >
+                          ✕
+                        </button>
+                      )}
                     </div>
-                  )}
 
-                  {/* Search Bar filter */}
-                  <div className="relative">
-                    <input 
-                      type="text"
-                      value={wStep2Search}
-                      onChange={(e) => setWStep2Search(e.target.value)}
-                      placeholder="🔎 Buscar madeira por nome ou código..."
-                      className="w-full h-12 bg-neutral-950 border border-neutral-750 rounded-xl px-4 py-3 text-sm sm:text-base outline-none text-zinc-100 placeholder-zinc-500 focus:border-amber-600 focus:ring-1 focus:ring-amber-600 transition-colors font-bold shadow-inner"
-                    />
-                    {wStep2Search && (
-                      <button 
-                        onClick={() => setWStep2Search('')}
-                        className="absolute right-3.5 top-3.5 text-zinc-400 hover:text-zinc-200 text-xs sm:text-sm uppercase font-black"
+                    {/* Category Filter Pills */}
+                    <div className="flex gap-1.5 overflow-x-auto no-scrollbar pb-1 text-[11px] font-bold">
+                      <button
+                        type="button"
+                        onClick={() => setBCategoryFilter('all')}
+                        className={`px-3 py-1.5 rounded-lg border whitespace-nowrap transition-colors cursor-pointer ${
+                          bCategoryFilter === 'all'
+                            ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                            : 'bg-neutral-950 border-neutral-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
                       >
-                        Limpar
+                        🏷️ Todos ({products.length})
                       </button>
-                    )}
+                      <button
+                        type="button"
+                        onClick={() => setBCategoryFilter('tabuas')}
+                        className={`px-3 py-1.5 rounded-lg border whitespace-nowrap transition-colors cursor-pointer ${
+                          bCategoryFilter === 'tabuas'
+                            ? 'bg-amber-500/20 border-amber-500 text-amber-300'
+                            : 'bg-neutral-950 border-neutral-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        🪵 Tábuas & Pranchas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBCategoryFilter('toras')}
+                        className={`px-3 py-1.5 rounded-lg border whitespace-nowrap transition-colors cursor-pointer ${
+                          bCategoryFilter === 'toras'
+                            ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                            : 'bg-neutral-950 border-neutral-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        🌲 Toras Huber (m³)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBCategoryFilter('vigas')}
+                        className={`px-3 py-1.5 rounded-lg border whitespace-nowrap transition-colors cursor-pointer ${
+                          bCategoryFilter === 'vigas'
+                            ? 'bg-indigo-500/20 border-indigo-500 text-indigo-300'
+                            : 'bg-neutral-950 border-neutral-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        📏 Vigas & Peças (m)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setBCategoryFilter('servicos')}
+                        className={`px-3 py-1.5 rounded-lg border whitespace-nowrap transition-colors cursor-pointer ${
+                          bCategoryFilter === 'servicos'
+                            ? 'bg-purple-500/20 border-purple-500 text-purple-300'
+                            : 'bg-neutral-950 border-neutral-800 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        ⚙️ Serviços & Outros
+                      </button>
+                    </div>
                   </div>
 
                   {/* Interactive Catalog Grid with Sizing and Direct Addition */}
                   <div className="flex-1 overflow-y-auto max-h-[380px] space-y-3.5 pr-1 mt-1">
                     {(() => {
-                      const filtered = products.filter(p => 
-                        p.name.toLowerCase().includes(wStep2Search.toLowerCase()) || 
-                        p.code.toLowerCase().includes(wStep2Search.toLowerCase())
-                      );
+                      const filtered = products.filter(p => {
+                        const matchesSearch = p.name.toLowerCase().includes(wStep2Search.toLowerCase()) || 
+                          p.code.toLowerCase().includes(wStep2Search.toLowerCase());
+                        if (!matchesSearch) return false;
+
+                        if (bCategoryFilter === 'tabuas') return p.unit === 'TABUA' || p.unit === 'PRANCHA';
+                        if (bCategoryFilter === 'toras') return p.unit === 'M3' || p.unit === 'M3_BLOCO';
+                        if (bCategoryFilter === 'vigas') return p.unit === 'M' || p.unit === 'M2' || p.unit === 'PECA' || p.unit === 'MIL';
+                        if (bCategoryFilter === 'servicos') return p.unit === 'HORA' || p.unit === 'DIARIA' || p.unit === 'ST' || p.unit === 'KG' || p.unit === 'TON';
+                        return true;
+                      });
 
                       if (filtered.length === 0) {
                         return (
@@ -9759,403 +11053,242 @@ ${itemRows}
                               )}
                             </div>
 
-                            {/* Dynamic selection configs if timber product (Width and/or length controls) */}
+                            {/* Fast Config Row: Tabua / Prancha */}
                             {(p.unit === 'TABUA' || p.unit === 'PRANCHA') && (
-                              <div className="pt-2.5 border-t border-dashed border-neutral-850 space-y-3.5 text-xs">
-                                {/* Manual Input Field to write Width and Length as requested */}
-                                <div className="bg-neutral-900/95 p-3.5 rounded-xl border border-neutral-800 grid grid-cols-2 gap-3.5 shadow-inner">
-                                  <div>
-                                    <label className="text-zinc-300 block font-extrabold text-xs mb-1.5 uppercase tracking-wide">Largura (cm):</label>
+                              <div className="pt-2 border-t border-neutral-850 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                <div className="bg-neutral-900/80 p-2.5 rounded-xl border border-neutral-800/80 space-y-1.5">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-[10px] text-zinc-400 uppercase font-bold">Largura:</span>
+                                    <span className="font-mono text-amber-400 font-bold">{dims.width || 0} cm</span>
+                                  </div>
+                                  <div className="flex gap-1 overflow-x-auto no-scrollbar">
+                                    {[15, 20, 25, 30].map(w => (
+                                      <button
+                                        key={w}
+                                        type="button"
+                                        onClick={() => setProductDimValue(p.id, 'width', w)}
+                                        className={`flex-1 py-1 rounded-lg font-mono text-[11px] font-bold border transition-colors cursor-pointer ${
+                                          dims.width === w 
+                                            ? 'bg-amber-500 text-neutral-950 border-amber-400' 
+                                            : 'bg-neutral-950 text-zinc-400 border-neutral-800 hover:text-zinc-200'
+                                        }`}
+                                      >
+                                        {w}
+                                      </button>
+                                    ))}
                                     <input
                                       type="number"
-                                      step="1"
                                       min="1"
                                       value={dims.width || ''}
                                       onChange={(e) => setProductDimValue(p.id, 'width', parseFloat(e.target.value) || 0)}
-                                      placeholder="Ex: 25"
-                                      className="w-full h-11 bg-neutral-950 border border-neutral-700 rounded-lg px-3 text-zinc-100 font-mono font-extrabold text-base focus:border-amber-500 outline-none"
+                                      placeholder="cm"
+                                      className="w-14 bg-neutral-950 border border-neutral-700 rounded-lg px-1.5 text-center font-mono text-zinc-100 font-bold text-xs outline-none focus:border-amber-500"
+                                      title="Outra largura em cm"
                                     />
                                   </div>
-                                  <div>
-                                    <label className="text-zinc-300 block font-extrabold text-xs mb-1.5 uppercase tracking-wide">Comp. (m):</label>
+                                </div>
+
+                                <div className="bg-neutral-900/80 p-2.5 rounded-xl border border-neutral-800/80 space-y-1.5">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-[10px] text-zinc-400 uppercase font-bold">Comprimento:</span>
+                                    <span className="font-mono text-amber-400 font-bold">{dims.length || 0} m</span>
+                                  </div>
+                                  <div className="flex gap-1 overflow-x-auto no-scrollbar">
+                                    {[2.5, 3, 4, 5].map(l => (
+                                      <button
+                                        key={l}
+                                        type="button"
+                                        onClick={() => setProductDimValue(p.id, 'length', l)}
+                                        className={`flex-1 py-1 rounded-lg font-mono text-[11px] font-bold border transition-colors cursor-pointer ${
+                                          dims.length === l 
+                                            ? 'bg-amber-500 text-neutral-950 border-amber-400' 
+                                            : 'bg-neutral-950 text-zinc-400 border-neutral-800 hover:text-zinc-200'
+                                        }`}
+                                      >
+                                        {l}m
+                                      </button>
+                                    ))}
                                     <input
                                       type="number"
                                       step="0.1"
                                       min="0.1"
                                       value={dims.length || ''}
                                       onChange={(e) => setProductDimValue(p.id, 'length', parseFloat(e.target.value) || 0)}
-                                      placeholder="Ex: 3.5"
-                                      className="w-full h-11 bg-neutral-950 border border-neutral-700 rounded-lg px-3 text-zinc-100 font-mono font-extrabold text-base focus:border-amber-500 outline-none"
+                                      placeholder="m"
+                                      className="w-14 bg-neutral-950 border border-neutral-700 rounded-lg px-1.5 text-center font-mono text-zinc-100 font-bold text-xs outline-none focus:border-amber-500"
+                                      title="Outro comprimento em metros"
                                     />
-                                  </div>
-                                </div>
-
-                                {/* Standard sizing recommendations tags */}
-                                <div className="space-y-3.5 bg-neutral-950/60 p-3.5 rounded-xl border border-neutral-900 shadow">
-                                  <div>
-                                    <span className="text-zinc-400 block font-extrabold text-xs mb-1.5">Sugestões de Largura (cm):</span>
-                                    <div className="flex gap-2 overflow-x-auto pb-1">
-                                      {['15', '20', '25', '30'].map(wStr => {
-                                        const w = parseInt(wStr);
-                                        return (
-                                          <button
-                                            key={w}
-                                            type="button"
-                                            onClick={() => setProductDimValue(p.id, 'width', w)}
-                                            className={`px-3.5 py-2 rounded-lg font-mono font-black border text-sm shrink-0 transition-all ${
-                                              dims.width === w 
-                                                ? 'bg-amber-600 text-neutral-950 border-amber-500' 
-                                                : 'bg-neutral-900 text-zinc-350 border-neutral-800'
-                                            }`}
-                                          >
-                                            {w} cm
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-
-                                  <div>
-                                    <span className="text-zinc-400 block font-extrabold text-xs mb-1.5">Sugestões de Comprimento (m):</span>
-                                    <div className="flex gap-2 overflow-x-auto pb-1">
-                                      {['1', '2.5', '3', '4', '4.5', '5', '5.5', '6'].map(lStr => {
-                                        const l = parseFloat(lStr);
-                                        return (
-                                          <button
-                                            key={l}
-                                            type="button"
-                                            onClick={() => setProductDimValue(p.id, 'length', l)}
-                                            className={`px-4 py-2 rounded-lg font-mono font-black border text-sm shrink-0 transition-all ${
-                                              dims.length === l 
-                                                ? 'bg-amber-600 text-neutral-950 border-amber-500' 
-                                                : 'bg-neutral-900 text-zinc-350 border-neutral-800'
-                                            }`}
-                                          >
-                                            {l}m
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
                                   </div>
                                 </div>
                               </div>
                             )}
 
+                            {/* Fast Config Row: Toras Huber (M3) */}
                             {p.unit === 'M3' && (
-                              <div className="pt-2.5 border-t border-dashed border-neutral-850 space-y-3.5 text-xs">
-                                {/* Manual Input Field to write Diameter and Length */}
-                                <div className="bg-neutral-900/95 p-3.5 rounded-xl border border-neutral-800 grid grid-cols-2 gap-3.5 shadow-inner">
-                                  <div>
-                                    <label className="text-zinc-300 block font-extrabold text-xs mb-1.5 uppercase tracking-wide">Diâmetro (cm):</label>
+                              <div className="pt-2 border-t border-neutral-850 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                                <div className="bg-neutral-900/80 p-2.5 rounded-xl border border-neutral-800/80 space-y-1.5">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-[10px] text-zinc-400 uppercase font-bold">Diâmetro Ponta Fina:</span>
+                                    <span className="font-mono text-emerald-400 font-bold">Ø {dims.diameter || 0} cm</span>
+                                  </div>
+                                  <div className="flex gap-1 overflow-x-auto no-scrollbar">
+                                    {[20, 30, 40, 50].map(d => (
+                                      <button
+                                        key={d}
+                                        type="button"
+                                        onClick={() => setProductDimValue(p.id, 'diameter', d)}
+                                        className={`flex-1 py-1 rounded-lg font-mono text-[11px] font-bold border transition-colors cursor-pointer ${
+                                          dims.diameter === d 
+                                            ? 'bg-emerald-500 text-neutral-950 border-emerald-400' 
+                                            : 'bg-neutral-950 text-zinc-400 border-neutral-800 hover:text-zinc-200'
+                                        }`}
+                                      >
+                                        Ø{d}
+                                      </button>
+                                    ))}
                                     <input
                                       type="number"
-                                      step="1"
                                       min="1"
                                       value={dims.diameter || ''}
                                       onChange={(e) => setProductDimValue(p.id, 'diameter', parseFloat(e.target.value) || 0)}
-                                      placeholder="Ex: 40"
-                                      className="w-full h-11 bg-neutral-950 border border-neutral-700 rounded-lg px-3 text-zinc-100 font-mono font-extrabold text-base focus:border-amber-500 outline-none"
+                                      placeholder="Ø cm"
+                                      className="w-14 bg-neutral-950 border border-neutral-700 rounded-lg px-1 text-center font-mono text-zinc-100 font-bold text-xs outline-none focus:border-emerald-500"
                                     />
                                   </div>
-                                  <div>
-                                    <label className="text-zinc-300 block font-extrabold text-xs mb-1.5 uppercase tracking-wide">Comprimento (m):</label>
+                                </div>
+
+                                <div className="bg-neutral-900/80 p-2.5 rounded-xl border border-neutral-800/80 space-y-1.5">
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-[10px] text-zinc-400 uppercase font-bold">Comprimento da Tora:</span>
+                                    <span className="font-mono text-emerald-400 font-bold">{dims.length || 0} m</span>
+                                  </div>
+                                  <div className="flex gap-1 overflow-x-auto no-scrollbar">
+                                    {[3, 4, 6, 8].map(l => (
+                                      <button
+                                        key={l}
+                                        type="button"
+                                        onClick={() => setProductDimValue(p.id, 'length', l)}
+                                        className={`flex-1 py-1 rounded-lg font-mono text-[11px] font-bold border transition-colors cursor-pointer ${
+                                          dims.length === l 
+                                            ? 'bg-emerald-500 text-neutral-950 border-emerald-400' 
+                                            : 'bg-neutral-950 text-zinc-400 border-neutral-800 hover:text-zinc-200'
+                                        }`}
+                                      >
+                                        {l}m
+                                      </button>
+                                    ))}
                                     <input
                                       type="number"
                                       step="0.1"
                                       min="0.1"
                                       value={dims.length || ''}
                                       onChange={(e) => setProductDimValue(p.id, 'length', parseFloat(e.target.value) || 0)}
-                                      placeholder="Ex: 6"
-                                      className="w-full h-11 bg-neutral-950 border border-neutral-700 rounded-lg px-3 text-zinc-100 font-mono font-extrabold text-base focus:border-amber-500 outline-none"
+                                      placeholder="m"
+                                      className="w-14 bg-neutral-950 border border-neutral-700 rounded-lg px-1 text-center font-mono text-zinc-100 font-bold text-xs outline-none focus:border-emerald-500"
                                     />
-                                  </div>
-                                </div>
-
-                                <div className="space-y-3.5 bg-neutral-950/60 p-3.5 rounded-xl border border-neutral-900 shadow">
-                                  <div>
-                                    <span className="text-zinc-400 block font-extrabold text-xs mb-1.5">Diâmetros Recomendados:</span>
-                                    <div className="flex gap-2 overflow-x-auto pb-1">
-                                      {['20', '30', '40', '50'].map(dStr => {
-                                        const d = parseInt(dStr);
-                                        return (
-                                          <button
-                                            key={d}
-                                            type="button"
-                                            onClick={() => setProductDimValue(p.id, 'diameter', d)}
-                                            className={`px-3.5 py-2 rounded-lg font-mono font-black border text-sm shrink-0 transition-all ${
-                                              dims.diameter === d 
-                                                ? 'bg-amber-600 text-neutral-950 border-amber-500' 
-                                                : 'bg-neutral-900 text-zinc-350 border-neutral-800'
-                                            }`}
-                                          >
-                                            Ø {d} cm
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  </div>
-
-                                  <div>
-                                    <span className="text-zinc-400 block font-extrabold text-xs mb-1.5">Comprimentos Recomendados:</span>
-                                    <div className="flex gap-2 overflow-x-auto pb-1">
-                                      {['4', '6', '8', '10', '12'].map(lStr => {
-                                        const l = parseFloat(lStr);
-                                        return (
-                                          <button
-                                            key={l}
-                                            type="button"
-                                            onClick={() => setProductDimValue(p.id, 'length', l)}
-                                            className={`px-4 py-2 rounded-lg font-mono font-black border text-sm shrink-0 transition-all ${
-                                              dims.length === l 
-                                                ? 'bg-amber-600 text-neutral-950 border-amber-500' 
-                                                : 'bg-neutral-900 text-zinc-350 border-neutral-800'
-                                            }`}
-                                          >
-                                            {l}m
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
                                   </div>
                                 </div>
                               </div>
                             )}
 
-                            {/* Metro Linear custom length controls with context-aware sizing */}
-                            {p.unit === 'M' && (() => {
-                              const isPillar = p.code.startsWith('PIL') || /pilar|pilastra/i.test(p.name);
-                              const isRegua = p.code.startsWith('REG') || /régua|regua/i.test(p.name);
-                              const isRipaOrCaibro = p.code.startsWith('RPA') || p.code.startsWith('RPI') || p.code.startsWith('CAI') || /ripa|ripão|ripao|caibro/i.test(p.name);
+                            {/* Fast Config Row: Peças no Metro Linear (M) */}
+                            {p.unit === 'M' && (
+                              <div className="pt-2 border-t border-neutral-855 space-y-1.5 text-xs">
+                                <div className="flex justify-between items-center">
+                                  <span className="text-[10px] text-zinc-400 uppercase font-bold">Comprimento da Peça:</span>
+                                  <span className="font-mono text-indigo-400 font-bold">
+                                    {dims.length === 1 ? '1m (Corrido)' : `${dims.length || 0}m`}
+                                  </span>
+                                </div>
+                                <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
+                                  {[1, 2.5, 3, 4, 5, 6].map(l => (
+                                    <button
+                                      key={l}
+                                      type="button"
+                                      onClick={() => setProductDimValue(p.id, 'length', l)}
+                                      className={`px-3 py-1 rounded-lg font-mono text-xs font-bold border transition-colors cursor-pointer whitespace-nowrap ${
+                                        dims.length === l 
+                                          ? 'bg-indigo-500 text-white border-indigo-400' 
+                                          : 'bg-neutral-950 text-zinc-400 border-neutral-800 hover:text-zinc-200'
+                                      }`}
+                                    >
+                                      {l === 1 ? 'Corrido (1m)' : `${l}m`}
+                                    </button>
+                                  ))}
+                                  <input
+                                    type="number"
+                                    step="0.1"
+                                    min="0.5"
+                                    value={dims.length > 0 && ![1, 2.5, 3, 4, 5, 6].includes(dims.length) ? dims.length : ''}
+                                    onChange={(e) => setProductDimValue(p.id, 'length', parseFloat(e.target.value) || 0)}
+                                    placeholder="Outro (m)"
+                                    className="w-20 bg-neutral-950 border border-neutral-700 rounded-lg px-2 text-center font-mono text-zinc-100 font-bold text-xs outline-none focus:border-indigo-500"
+                                  />
+                                </div>
+                              </div>
+                            )}
 
-                              // Define corresponding length suggestions as requested
-                              let sizeOptions: number[] = [];
-                              let specTypeLabel = "Peça Geral";
-                              
-                              if (isPillar) {
-                                sizeOptions = [2.2, 3.5];
-                                specTypeLabel = "Pilastra / Pilar";
-                              } else if (isRegua) {
-                                sizeOptions = [2.5, 3, 3.5, 4, 4.5];
-                                specTypeLabel = "Régua";
-                              } else if (isRipaOrCaibro) {
-                                sizeOptions = [3, 4, 5, 6];
-                                specTypeLabel = "Ripa / Ripão / Caibro";
-                              } else {
-                                sizeOptions = [1, 2.5, 3, 4, 4.5, 5, 5.5, 6];
-                                specTypeLabel = "Peça Geral";
-                              }
-
-                              return (
-                                <div className="pt-2.5 border-t border-dashed border-neutral-850 space-y-3 block text-xs">
-                                  {isRipaOrCaibro ? (
-                                    <div className="space-y-3 bg-neutral-900/60 p-3 rounded-lg border border-neutral-850">
-                                      <div className="flex justify-between items-center mb-1">
-                                        <span className="text-zinc-350 font-extrabold uppercase text-xs tracking-wider font-sans">📐 Modo de Venda:</span>
-                                        <span className="text-xs text-amber-500 font-extrabold font-sans">Metragem Corrida</span>
-                                      </div>
-                                      
-                                      <div className="grid grid-cols-2 gap-3 text-sm">
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setProductDimValue(p.id, 'length', 1);
-                                            setCustomLengths(prev => {
-                                              const copy = { ...prev };
-                                              delete copy[p.id];
-                                              return copy;
-                                            });
-                                          }}
-                                          className={`py-3 rounded-lg font-black border text-center transition-all cursor-pointer text-xs uppercase ${
-                                            dims.length === 1 
-                                              ? 'bg-amber-600 text-neutral-950 border-amber-500 font-extrabold' 
-                                              : 'bg-neutral-950 text-zinc-300 border-neutral-800 hover:text-zinc-200'
-                                          }`}
-                                        >
-                                          🏃 Metragem Corrida
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setProductDimValue(p.id, 'length', 3);
-                                            setCustomLengths(prev => {
-                                              const copy = { ...prev };
-                                              delete copy[p.id];
-                                              return copy;
-                                            });
-                                          }}
-                                          className={`py-3 rounded-lg font-black border text-center transition-all cursor-pointer text-xs uppercase ${
-                                            dims.length !== 1 
-                                              ? 'bg-amber-600 text-neutral-950 border-amber-500 font-extrabold' 
-                                              : 'bg-neutral-950 text-zinc-300 border-neutral-800 hover:text-zinc-200'
-                                          }`}
-                                        >
-                                          🪵 Escolher Peça (m)
-                                        </button>
-                                      </div>
-
-                                      {dims.length !== 1 && (
-                                        <div className="pt-2.5 border-t border-neutral-800 space-y-2">
-                                          <span className="text-zinc-400 block font-extrabold font-sans">Sugestão de tamanho por peça:</span>
-                                          <div className="flex gap-2 overflow-x-auto pb-1">
-                                            {sizeOptions.map(l => (
-                                              <button
-                                                key={l}
-                                                type="button"
-                                                onClick={() => {
-                                                  setProductDimValue(p.id, 'length', l);
-                                                  setCustomLengths(prev => {
-                                                    const copy = { ...prev };
-                                                    delete copy[p.id];
-                                                    return copy;
-                                                  });
-                                                }}
-                                                className={`px-3.5 py-2 rounded-lg font-mono font-black border text-sm shrink-0 transition-all ${
-                                                  dims.length === l 
-                                                    ? 'bg-amber-600 text-neutral-950 border-amber-500' 
-                                                    : 'bg-neutral-950 text-zinc-350 border-neutral-850'
-                                                }`}
-                                              >
-                                                {l}m
-                                              </button>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <div className="bg-neutral-900/60 p-3.5 rounded-xl border border-neutral-850">
-                                      <div className="flex justify-between items-center mb-1.5">
-                                        <span className="text-zinc-300 block font-extrabold uppercase text-xs tracking-wider font-sans">🪵 {specTypeLabel} ({dims.length}m):</span>
-                                      </div>
-                                      <div className="flex gap-2 overflow-x-auto py-0.5">
-                                        {sizeOptions.map(l => (
-                                          <button
-                                            key={l}
-                                            type="button"
-                                            onClick={() => {
-                                              setProductDimValue(p.id, 'length', l);
-                                              setCustomLengths(prev => {
-                                                const copy = { ...prev };
-                                                delete copy[p.id];
-                                                return copy;
-                                              });
-                                            }}
-                                            className={`px-3 py-2 rounded-lg font-mono font-bold border min-w-[44px] text-center shrink-0 transition-all ${
-                                              dims.length === l 
-                                                ? 'bg-amber-600 text-neutral-950 border-amber-500' 
-                                                : 'bg-neutral-950 text-zinc-300 border-neutral-800'
-                                            }`}
-                                          >
-                                            {l === 2.2 ? '2,20m' : `${l.toString().replace('.', ',')}m`}
-                                          </button>
-                                        ))}
-
-                                        {/* Dynamic size input free-typing for general pieces config */}
-                                        <div className="flex items-center gap-2 border-l border-neutral-800 pl-2.5 ml-1.5 font-sans">
-                                          <input
-                                            type="text"
-                                            inputMode="decimal"
-                                            placeholder="Outro"
-                                            value={
-                                              customLengths[p.id] !== undefined
-                                                ? customLengths[p.id]
-                                                : (dims.length === 0 || isNaN(dims.length) || sizeOptions.includes(dims.length)
-                                                    ? ''
-                                                    : String(dims.length).replace('.', ','))
-                                            }
-                                            onChange={(e) => {
-                                              const raw = e.target.value;
-                                              // Allow numeric digits, single comma, and single dot
-                                              const cleaned = raw.replace(/[^0-9,.]/g, '');
-                                              setCustomLengths(prev => ({ ...prev, [p.id]: cleaned }));
-
-                                              const normalized = cleaned.replace(',', '.');
-                                              if (normalized === '') {
-                                                setProductDimValue(p.id, 'length', 0);
-                                              } else {
-                                                const val = parseFloat(normalized);
-                                                if (!isNaN(val)) {
-                                                  setProductDimValue(p.id, 'length', val);
-                                                }
-                                              }
-                                            }}
-                                            className="w-16 h-10 bg-neutral-950 border border-neutral-750 rounded-lg font-mono text-sm text-zinc-100 font-extrabold text-center outline-none focus:border-amber-500"
-                                            title="Tamanho personalizado em metros"
-                                          />
-                                          <span className="text-xs text-zinc-400 font-black font-sans">m</span>
-                                        </div>
-                                      </div>
-                                    </div>
+                            {/* Clean Bottom Action Bar */}
+                            <div className="pt-2.5 border-t border-neutral-800/80 flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <span className="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block">Valor Previsto</span>
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className="font-mono font-black text-amber-400 text-sm sm:text-base">
+                                    R$ {lineTotalPreview.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                  </span>
+                                  {specLabel && (
+                                    <span className="font-mono text-[10px] text-zinc-400 truncate">{specLabel}</span>
                                   )}
                                 </div>
-                              );
-                            })()}
-
-                            {/* Explicit Addition controller at the bottom of each wood item */}
-                            <div className="mt-2.5 pt-2 border-t border-neutral-900 flex justify-between items-center bg-black/20 p-2 rounded-lg">
-                              <div className="text-[9px] font-medium text-zinc-400">
-                                <span>Total Item: </span>
-                                <span className="font-mono font-bold text-amber-500">R$ {lineTotalPreview.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
-                                <span className="text-[8px] text-zinc-500 block">{specLabel && `${specLabel}`}</span>
                               </div>
 
-                              <div className="flex items-center gap-1.5">
-                                {/* - Button */}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const current = typeof currentAddingQty === 'number' ? currentAddingQty : (parseInt(String(currentAddingQty), 10) || 1);
-                                    setAddingQtys(prev => ({ ...prev, [p.id]: Math.max(1, current - 1) }));
-                                  }}
-                                  className="w-7 h-7 rounded-md bg-neutral-900 border border-neutral-800 hover:bg-neutral-800 text-zinc-350 active:scale-90 font-extrabold flex items-center justify-center text-xs cursor-pointer select-none transition-all"
-                                >
-                                  -
-                                </button>
-                                
-                                {/* Direct quantity editor */}
-                                <input
-                                  type="text"
-                                  inputMode="numeric"
-                                  pattern="[0-9]*"
-                                  value={currentAddingQty}
-                                  onFocus={(e) => e.target.select()}
-                                  onChange={(e) => {
-                                    // Allow typing digits only or clearing to empty string
-                                    const rawVal = e.target.value.replace(/\D/g, '');
-                                    setAddingQtys(prev => ({ ...prev, [p.id]: rawVal }));
-                                  }}
-                                  onBlur={() => {
-                                    // Auto-validate empty or negative inputs only when focus is lost
-                                    const parsed = parseInt(String(currentAddingQty), 10);
-                                    if (isNaN(parsed) || parsed <= 0) {
-                                      setAddingQtys(prev => ({ ...prev, [p.id]: 1 }));
-                                    } else {
-                                      setAddingQtys(prev => ({ ...prev, [p.id]: parsed }));
-                                    }
-                                  }}
-                                  className="w-18 h-7 bg-neutral-950 border border-neutral-800 rounded-md font-mono text-zinc-100 font-extrabold text-center text-[10.5px] outline-none focus:border-amber-500 transition-colors"
-                                  placeholder="0"
-                                />
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {/* Quantity Stepper */}
+                                <div className="flex items-center bg-neutral-900 border border-neutral-800 rounded-xl p-0.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const current = typeof currentAddingQty === 'number' ? currentAddingQty : (parseInt(String(currentAddingQty), 10) || 1);
+                                      setAddingQtys(prev => ({ ...prev, [p.id]: Math.max(1, current - 1) }));
+                                    }}
+                                    className="w-7 h-7 rounded-lg bg-neutral-950 text-zinc-300 hover:bg-neutral-800 active:scale-95 font-black flex items-center justify-center text-xs cursor-pointer select-none"
+                                  >
+                                    -
+                                  </button>
+                                  <input
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={currentAddingQty}
+                                    onFocus={(e) => e.target.select()}
+                                    onChange={(e) => {
+                                      const rawVal = e.target.value.replace(/\D/g, '');
+                                      setAddingQtys(prev => ({ ...prev, [p.id]: rawVal }));
+                                    }}
+                                    onBlur={() => {
+                                      const parsed = parseInt(String(currentAddingQty), 10);
+                                      setAddingQtys(prev => ({ ...prev, [p.id]: isNaN(parsed) || parsed <= 0 ? 1 : parsed }));
+                                    }}
+                                    className="w-10 h-7 bg-transparent font-mono text-zinc-100 font-black text-center text-xs outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const current = typeof currentAddingQty === 'number' ? currentAddingQty : (parseInt(String(currentAddingQty), 10) || 1);
+                                      setAddingQtys(prev => ({ ...prev, [p.id]: current + 1 }));
+                                    }}
+                                    className="w-7 h-7 rounded-lg bg-neutral-950 text-zinc-300 hover:bg-neutral-800 active:scale-95 font-black flex items-center justify-center text-xs cursor-pointer select-none"
+                                  >
+                                    +
+                                  </button>
+                                </div>
 
-                                {/* + Button */}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    const current = typeof currentAddingQty === 'number' ? currentAddingQty : (parseInt(String(currentAddingQty), 10) || 1);
-                                    setAddingQtys(prev => ({ ...prev, [p.id]: current + 1 }));
-                                  }}
-                                  className="w-7 h-7 rounded-md bg-neutral-900 border border-neutral-800 hover:bg-neutral-800 text-zinc-350 active:scale-90 font-extrabold flex items-center justify-center text-xs cursor-pointer select-none transition-all"
-                                >
-                                  +
-                                </button>
-
-                                {/* Prompt Add Trigger */}
+                                {/* Add Button */}
                                 <button
                                   type="button"
                                   onClick={() => addBItemSized(p, currentAddingQty)}
-                                  className="ml-1 bg-amber-600 hover:bg-amber-500 hover:scale-[1.02] text-neutral-950 font-black text-[9.5px] uppercase px-3 py-1 bg-gradient-to-r rounded-lg active:scale-95 transition-all flex items-center gap-1 cursor-pointer font-bold shrink-0"
+                                  className="bg-amber-500 hover:bg-amber-400 active:scale-95 text-neutral-950 font-black text-xs uppercase px-3.5 py-2 rounded-xl flex items-center gap-1.5 transition-all shadow-md cursor-pointer select-none"
                                 >
-                                  Adicionar
+                                  <span>+ Adicionar</span>
                                 </button>
                               </div>
                             </div>
@@ -10164,6 +11297,173 @@ ${itemRows}
                       });
                     })()}
                   </div>
+
+                  {/* REPOSITIONED BASKET: Sticky Bottom Basket Tray */}
+                  {bItems.length > 0 ? (
+                    <div className="bg-neutral-900 border-2 border-amber-500/40 rounded-2xl p-3 shadow-xl space-y-2.5 shrink-0 animate-fade-in">
+                      {/* Basket Header Bar with Toggle */}
+                      <div className="flex justify-between items-center">
+                        <button
+                          type="button"
+                          onClick={() => setShowBasketDrawer(prev => !prev)}
+                          className="flex items-center gap-2 text-left cursor-pointer group"
+                        >
+                          <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center font-black text-xs">
+                            <ShoppingCart className="w-4 h-4" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-xs font-black uppercase text-amber-400 tracking-wide">
+                                Cesta de Materiais ({bItems.length} {bItems.length === 1 ? 'item' : 'itens'})
+                              </span>
+                              <ChevronDown className={`w-3.5 h-3.5 text-amber-400 transition-transform ${showBasketDrawer ? 'rotate-180' : ''}`} />
+                            </div>
+                            <span className="text-[10px] text-zinc-400 block">
+                              {showBasketDrawer ? 'Toque para recolher lista' : 'Toque para ver e ajustar itens'}
+                            </span>
+                          </div>
+                        </button>
+
+                        <div className="flex items-center gap-2">
+                          <div className="text-right">
+                            <span className="text-[10px] uppercase font-bold text-zinc-400 block leading-tight">Subtotal</span>
+                            <span className="font-mono font-black text-amber-400 text-sm sm:text-base">
+                              R$ {calculatedSubtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (window.confirm('Deseja limpar todos os itens da cesta?')) {
+                                setBItems([]);
+                                triggerNotification('Cesta esvaziada');
+                              }
+                            }}
+                            className="p-1.5 text-zinc-500 hover:text-red-400 hover:bg-neutral-800 rounded-lg transition-colors cursor-pointer"
+                            title="Limpar cesta"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Expandable Items Drawer */}
+                      {showBasketDrawer && (
+                        <div className="max-h-[220px] overflow-y-auto space-y-2 pt-2 border-t border-neutral-800 pr-1">
+                          {bItems.map((item, idx) => {
+                            let qtyText = '';
+                            let itemTotal = 0;
+
+                            if (item.product.unit === 'M3' && item.diameter && item.length) {
+                              const singleVol = parseCubicMeters(item.diameter, item.length);
+                              const pcs = Math.round(item.quantity / (singleVol || 1));
+                              qtyText = `${pcs} pçs (Ø${item.diameter}cm x ${item.length}m = ${item.quantity.toFixed(3)}m³)`;
+                              itemTotal = item.product.price * item.quantity;
+                            } else if (item.product.unit === 'M3_BLOCO' && item.thickness && item.width && item.length) {
+                              const singleVol = (item.thickness * item.width * item.length) / 10000;
+                              qtyText = `${item.quantity} pçs (${item.thickness}x${item.width}cm x ${item.length}m = ${(singleVol * item.quantity).toFixed(3)}m³)`;
+                              itemTotal = singleVol * item.product.price * item.quantity;
+                            } else if ((item.product.unit === 'TABUA' || item.product.unit === 'PRANCHA') && item.width && item.length) {
+                              qtyText = `${item.quantity} pçs (${item.width}cm x ${item.length}m)`;
+                              itemTotal = item.width * item.product.price * item.length * item.quantity;
+                            } else if (item.product.unit === 'M' && item.length) {
+                              qtyText = `${item.quantity} pçs (${item.length}m)`;
+                              itemTotal = item.product.price * item.length * item.quantity;
+                            } else {
+                              qtyText = `${item.quantity} ${item.product.unit}`;
+                              itemTotal = item.product.price * item.quantity;
+                            }
+
+                            return (
+                              <div key={idx} className="bg-neutral-950 p-2.5 rounded-xl border border-neutral-800 flex items-center justify-between gap-2 text-xs">
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-zinc-100 truncate">{item.product.name}</span>
+                                    <span className="text-[9px] font-mono text-zinc-400 bg-neutral-900 px-1 py-0.5 rounded border border-neutral-800">{item.product.unit}</span>
+                                  </div>
+                                  <span className="font-mono text-[11px] text-zinc-400 block mt-0.5">{qtyText}</span>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {/* Stepper */}
+                                  <div className="flex items-center gap-1 bg-neutral-900 px-1.5 py-0.5 rounded-lg border border-neutral-800">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const singleVol = (item.product.unit === 'M3' && item.diameter && item.length)
+                                          ? parseCubicMeters(item.diameter, item.length)
+                                          : 1;
+                                        const currentPcs = item.product.unit === 'M3'
+                                          ? Math.round(item.quantity / (singleVol || 1))
+                                          : item.quantity;
+                                        const nextPcs = Math.max(1, currentPcs - 1);
+                                        setBItems(prev => prev.map((it, i) => {
+                                          if (i !== idx) return it;
+                                          return it.product.unit === 'M3'
+                                            ? { ...it, quantity: singleVol * nextPcs }
+                                            : { ...it, quantity: nextPcs };
+                                        }));
+                                      }}
+                                      className="w-5 h-5 rounded bg-neutral-950 text-zinc-300 font-bold flex items-center justify-center text-xs hover:bg-neutral-800 cursor-pointer"
+                                    >
+                                      -
+                                    </button>
+                                    <span className="font-mono font-bold text-zinc-200 text-xs px-1 min-w-[20px] text-center">
+                                      {item.product.unit === 'M3'
+                                        ? Math.round(item.quantity / ((item.diameter && item.length ? parseCubicMeters(item.diameter, item.length) : 1) || 1))
+                                        : item.quantity}
+                                    </span>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const singleVol = (item.product.unit === 'M3' && item.diameter && item.length)
+                                          ? parseCubicMeters(item.diameter, item.length)
+                                          : 1;
+                                        const currentPcs = item.product.unit === 'M3'
+                                          ? Math.round(item.quantity / (singleVol || 1))
+                                          : item.quantity;
+                                        const nextPcs = currentPcs + 1;
+                                        setBItems(prev => prev.map((it, i) => {
+                                          if (i !== idx) return it;
+                                          return it.product.unit === 'M3'
+                                            ? { ...it, quantity: singleVol * nextPcs }
+                                            : { ...it, quantity: nextPcs };
+                                        }));
+                                      }}
+                                      className="w-5 h-5 rounded bg-neutral-950 text-zinc-300 font-bold flex items-center justify-center text-xs hover:bg-neutral-800 cursor-pointer"
+                                    >
+                                      +
+                                    </button>
+                                  </div>
+
+                                  <span className="font-mono font-bold text-amber-400 text-xs min-w-[65px] text-right">
+                                    R$ {itemTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                  </span>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setBItems(bItems.filter((_, i) => i !== idx));
+                                      triggerNotification(`Removido: ${item.product.name}`);
+                                    }}
+                                    className="p-1 hover:bg-red-950/40 text-zinc-500 hover:text-red-400 rounded transition-colors cursor-pointer"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="bg-neutral-950 border border-dashed border-neutral-800 rounded-xl p-2.5 text-center shrink-0">
+                      <p className="text-[11px] text-zinc-400 font-medium">
+                        🪵 Selecione as madeiras e bitolas acima e clique em <span className="text-amber-400 font-bold">Adicionar</span> para compor o orçamento.
+                      </p>
+                    </div>
+                  )}
 
                   <div className="flex gap-2.5 mt-auto pt-3 border-t border-neutral-800/80">
                     <button 
@@ -11017,6 +12317,807 @@ ${itemRows}
             </motion.div>
           )}
 
+          {/* ========================================================================= */}
+          {/* OFFSCREEN CLEAN COMMERCIAL QUOTATION CARDS FOR HIGH-RES EXPORT (PNG/PDF)  */}
+          {/* ========================================================================= */}
+          <div style={{ position: 'fixed', left: '-9999px', top: 0, opacity: 0, pointerEvents: 'none', zIndex: -100 }}>
+            {/* 1. Toras Clean Quotation Card */}
+            <div id="toras-quotation-invoice-card" className="w-[840px] bg-white text-slate-900 p-8 font-sans border border-slate-200">
+              {/* Header */}
+              <div className="flex justify-between items-start border-b-2 border-indigo-900 pb-5 mb-6">
+                <div>
+                  <h1 className="text-2xl font-black text-indigo-950 uppercase tracking-tight">
+                    {companyProfile.companyName || 'ORÇAFÁCIL PRO'}
+                  </h1>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mt-0.5">
+                    Gestão Florestal & Memorial de Cubagem de Toras (Huber)
+                  </p>
+                  <div className="text-[11px] text-slate-600 mt-2 space-y-0.5">
+                    {companyProfile.cnpj && <p><strong>CNPJ:</strong> {companyProfile.cnpj}</p>}
+                    {companyProfile.cpf && <p><strong>CPF:</strong> {companyProfile.cpf}</p>}
+                    {companyProfile.phone && <p><strong>Telefone / WhatsApp:</strong> {companyProfile.phone}</p>}
+                    {companyProfile.address && <p><strong>Endereço:</strong> {companyProfile.address} - {companyProfile.cityState}</p>}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="inline-block bg-indigo-950 text-indigo-100 font-mono font-black text-xs px-3 py-1.5 rounded-lg mb-2">
+                    ORÇAMENTO DE CUBAGEM
+                  </div>
+                  <p className="text-xs text-slate-500 font-bold">
+                    Data: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  <p className="text-xs text-slate-500">Validade: 10 dias úteis</p>
+                </div>
+              </div>
+
+              {/* Destinatário */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6">
+                <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Destinatário / Cliente</div>
+                <div className="text-base font-extrabold text-slate-900 mt-0.5">
+                  {bSelectedClient?.name || bNewClientName || 'Balcão / Cotação Florestal'}
+                </div>
+                <div className="text-xs text-slate-600 flex gap-4 mt-1">
+                  <span><strong>Telefone:</strong> {bSelectedClient?.phone || 'A combinar'}</span>
+                  <span><strong>Cidade:</strong> {bSelectedClient?.city || 'Local'}</span>
+                </div>
+              </div>
+
+              {/* Destaque M³ e Valor Total */}
+              {(() => {
+                const d = parseFloat(calcDiameter) || 0;
+                const l = parseFloat(calcLength) || 0;
+                const curVol = parseCubicMeters(d, l);
+                const curVal = Math.round(curVol * calcProductPrice * 100) / 100;
+                const exportItems = calcHistory.length > 0 ? calcHistory : [{
+                  id: 'cur-tora',
+                  diameter: d,
+                  length: l,
+                  volume: curVol,
+                  price: calcProductPrice,
+                  value: curVal
+                }];
+                const grandTotalToras = exportItems.length;
+                const grandTotalM3 = exportItems.reduce((acc, it) => acc + it.volume, 0);
+                const grandTotalReais = exportItems.reduce((acc, it) => acc + it.value, 0);
+
+                return (
+                  <>
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div className="bg-indigo-50 border-2 border-indigo-200 rounded-xl p-4">
+                        <span className="text-[11px] font-black text-indigo-900 uppercase tracking-wide block">
+                          Metragem Total Cubada
+                        </span>
+                        <span className="text-3xl font-black font-mono text-indigo-950 block mt-1">
+                          {grandTotalM3.toFixed(3)} m³
+                        </span>
+                        <span className="text-xs text-indigo-700 font-medium block mt-1">
+                          {grandTotalToras} tora(s) cortada(s) no romaneio
+                        </span>
+                      </div>
+                      <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-4">
+                        <span className="text-[11px] font-black text-emerald-900 uppercase tracking-wide block">
+                          Valor Total Final
+                        </span>
+                        <span className="text-3xl font-black font-mono text-emerald-950 block mt-1">
+                          R$ {grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                        <span className="text-xs text-emerald-700 font-medium block mt-1">
+                          Preço base: R$ {calcProductPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / m³
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Tabela de Toras Cortadas */}
+                    <table className="w-full text-left text-xs border-collapse mb-6">
+                      <thead>
+                        <tr className="bg-indigo-950 text-white font-bold">
+                          <th className="py-2.5 px-3 rounded-tl-lg">Item</th>
+                          <th className="py-2.5 px-3">Especificação da Tora</th>
+                          <th className="py-2.5 px-3">Método</th>
+                          <th className="py-2.5 px-3 text-right">Volume (m³)</th>
+                          <th className="py-2.5 px-3 text-right">Preço/m³</th>
+                          <th className="py-2.5 px-3 text-right rounded-tr-lg">Total (R$)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {exportItems.map((it, idx) => (
+                          <tr key={it.id || idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            <td className="py-2.5 px-3 font-bold text-slate-700">#{idx + 1}</td>
+                            <td className="py-2.5 px-3 font-medium text-slate-900">
+                              Tora Roliça Ø {it.diameter}cm × {it.length}m
+                            </td>
+                            <td className="py-2.5 px-3 text-slate-500 font-mono">Huber</td>
+                            <td className="py-2.5 px-3 text-right font-bold font-mono text-indigo-900">
+                              {it.volume.toFixed(3)} m³
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                              R$ {it.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-bold font-mono text-emerald-700">
+                              R$ {it.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-indigo-50 border-t-2 border-indigo-300 font-black">
+                          <td colSpan={3} className="py-3 px-3 text-indigo-950 uppercase">
+                            Total Geral ({grandTotalToras} toras)
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono text-indigo-950">
+                            {grandTotalM3.toFixed(3)} m³
+                          </td>
+                          <td className="py-3 px-3"></td>
+                          <td className="py-3 px-3 text-right font-mono text-emerald-900 text-sm">
+                            R$ {grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </>
+                );
+              })()}
+
+              {/* Condições e Observações */}
+              <div className="border-t border-slate-200 pt-4 text-[11px] text-slate-500 space-y-1 mb-8">
+                <p>• <strong>Fórmula de Huber:</strong> Volume (m³) = (π × Diâmetro no meio² em cm × Comprimento em metros) / 40.000.</p>
+                <p>• Madeira sujeita a conferência no ato do carregamento / entrega. Orçamento válido por 10 dias.</p>
+                <p>• Documento comercial gerado automaticamente pelo OrçaFácil Pro.</p>
+              </div>
+
+              {/* Assinaturas */}
+              <div className="grid grid-cols-2 gap-12 pt-4">
+                <div className="border-t border-slate-300 text-center pt-2">
+                  <p className="text-xs font-bold text-slate-800">{companyProfile.companyName || 'Madeireira'}</p>
+                  <p className="text-[10px] text-slate-500">Responsável Técnico / Emissor</p>
+                </div>
+                <div className="border-t border-slate-300 text-center pt-2">
+                  <p className="text-xs font-bold text-slate-800">{bSelectedClient?.name || bNewClientName || 'Cliente'}</p>
+                  <p className="text-[10px] text-slate-500">De Acordo do Comprador</p>
+                </div>
+              </div>
+            </div>
+
+            {/* 2. Pranchas Clean Quotation Card */}
+            <div id="pranchas-quotation-invoice-card" className="w-[840px] bg-white text-slate-900 p-8 font-sans border border-slate-200">
+              {/* Header */}
+              <div className="flex justify-between items-start border-b-2 border-amber-900 pb-5 mb-6">
+                <div>
+                  <h1 className="text-2xl font-black text-amber-950 uppercase tracking-tight">
+                    {companyProfile.companyName || 'ORÇAFÁCIL PRO'}
+                  </h1>
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mt-0.5">
+                    Madeireira & Desdobro • Romaneio de Pranchas e Blocos
+                  </p>
+                  <div className="text-[11px] text-slate-600 mt-2 space-y-0.5">
+                    {companyProfile.cnpj && <p><strong>CNPJ:</strong> {companyProfile.cnpj}</p>}
+                    {companyProfile.cpf && <p><strong>CPF:</strong> {companyProfile.cpf}</p>}
+                    {companyProfile.phone && <p><strong>Telefone / WhatsApp:</strong> {companyProfile.phone}</p>}
+                    {companyProfile.address && <p><strong>Endereço:</strong> {companyProfile.address} - {companyProfile.cityState}</p>}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="inline-block bg-amber-950 text-amber-100 font-mono font-black text-xs px-3 py-1.5 rounded-lg mb-2">
+                    ORÇAMENTO DE PRANCHAS
+                  </div>
+                  <p className="text-xs text-slate-500 font-bold">
+                    Data: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  <p className="text-xs text-slate-500">Validade: 10 dias úteis</p>
+                </div>
+              </div>
+
+              {/* Destinatário */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6">
+                <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Destinatário / Cliente</div>
+                <div className="text-base font-extrabold text-slate-900 mt-0.5">
+                  {bSelectedClient?.name || bNewClientName || 'Balcão / Cotação Florestal'}
+                </div>
+                <div className="text-xs text-slate-600 flex gap-4 mt-1">
+                  <span><strong>Telefone:</strong> {bSelectedClient?.phone || 'A combinar'}</span>
+                  <span><strong>Cidade:</strong> {bSelectedClient?.city || 'Local'}</span>
+                </div>
+              </div>
+
+              {/* Destaque M³ e Valor Total */}
+              {(() => {
+                const curTh = parseFloat(blockCalcThickness) || 0;
+                const curWd = parseFloat(blockCalcWidth) || 0;
+                const curLen = parseFloat(blockCalcLength) || 0;
+                const curQty = parseInt(blockCalcQty, 10) || 1;
+                const unitVol = (curTh * curWd * curLen) / 10000;
+                const totalVol = unitVol * curQty;
+                const totalPrice = totalVol * blockCalcPrice;
+
+                const exportItems = blockCalcHistory.length > 0 ? blockCalcHistory : [{
+                  id: 'cur',
+                  thickness: curTh,
+                  width: curWd,
+                  length: curLen,
+                  qty: curQty,
+                  volumeUnit: unitVol,
+                  volumeTotal: totalVol,
+                  price: blockCalcPrice,
+                  value: totalPrice
+                }];
+
+                const grandTotalPcs = exportItems.reduce((acc, it) => acc + it.qty, 0);
+                const grandTotalM3 = exportItems.reduce((acc, it) => acc + it.volumeTotal, 0);
+                const grandTotalReais = exportItems.reduce((acc, it) => acc + it.value, 0);
+
+                return (
+                  <>
+                    <div className="grid grid-cols-2 gap-4 mb-6">
+                      <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4">
+                        <span className="text-[11px] font-black text-amber-900 uppercase tracking-wide block">
+                          Metragem Total Cubada
+                        </span>
+                        <span className="text-3xl font-black font-mono text-amber-950 block mt-1">
+                          {grandTotalM3.toFixed(3)} m³
+                        </span>
+                        <span className="text-xs text-amber-700 font-medium block mt-1">
+                          {grandTotalPcs} peça(s) no romaneio
+                        </span>
+                      </div>
+                      <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-4">
+                        <span className="text-[11px] font-black text-emerald-900 uppercase tracking-wide block">
+                          Valor Total Final
+                        </span>
+                        <span className="text-3xl font-black font-mono text-emerald-950 block mt-1">
+                          R$ {grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                        <span className="text-xs text-emerald-700 font-medium block mt-1">
+                          Preço base: R$ {blockCalcPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / m³
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Tabela de Pranchas e Blocos */}
+                    <table className="w-full text-left text-xs border-collapse mb-6">
+                      <thead>
+                        <tr className="bg-amber-950 text-white font-bold">
+                          <th className="py-2.5 px-3 rounded-tl-lg">Item</th>
+                          <th className="py-2.5 px-3">Dimensões (Esp × Larg × Comp)</th>
+                          <th className="py-2.5 px-3 text-center">Qtd</th>
+                          <th className="py-2.5 px-3 text-right">Vol. Unit (m³)</th>
+                          <th className="py-2.5 px-3 text-right">Vol. Total (m³)</th>
+                          <th className="py-2.5 px-3 text-right">Preço/m³</th>
+                          <th className="py-2.5 px-3 text-right rounded-tr-lg">Total (R$)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200">
+                        {exportItems.map((it, idx) => (
+                          <tr key={it.id || idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                            <td className="py-2.5 px-3 font-bold text-slate-700">#{idx + 1}</td>
+                            <td className="py-2.5 px-3 font-medium text-slate-900">
+                              Prancha {it.thickness}cm × {it.width}cm × {it.length}m
+                            </td>
+                            <td className="py-2.5 px-3 text-center font-bold text-slate-600">{it.qty}</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-slate-500">
+                              {it.volumeUnit.toFixed(3)} m³
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-bold font-mono text-amber-900">
+                              {it.volumeTotal.toFixed(3)} m³
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                              R$ {it.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-bold font-mono text-emerald-700">
+                              R$ {it.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-amber-50 border-t-2 border-amber-300 font-black">
+                          <td colSpan={2} className="py-3 px-3 text-amber-950 uppercase">
+                            Total do Romaneio
+                          </td>
+                          <td className="py-3 px-3 text-center text-amber-950 font-bold">{grandTotalPcs} pçs</td>
+                          <td className="py-3 px-3"></td>
+                          <td className="py-3 px-3 text-right font-mono text-amber-950">
+                            {grandTotalM3.toFixed(3)} m³
+                          </td>
+                          <td className="py-3 px-3"></td>
+                          <td className="py-3 px-3 text-right font-mono text-emerald-900 text-sm">
+                            R$ {grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </>
+                );
+              })()}
+
+              {/* Condições e Observações */}
+              <div className="border-t border-slate-200 pt-4 text-[11px] text-slate-500 space-y-1 mb-8">
+                <p>• <strong>Fórmula M³ Bloco:</strong> Volume (m³) = (Espessura cm × Largura cm × Comprimento m) / 10.000.</p>
+                <p>• Madeira serrada sujeita a conferência no ato do carregamento. Orçamento válido por 10 dias.</p>
+                <p>• Documento comercial gerado automaticamente pelo OrçaFácil Pro.</p>
+              </div>
+
+              {/* Assinaturas */}
+              <div className="grid grid-cols-2 gap-12 pt-4">
+                <div className="border-t border-slate-300 text-center pt-2">
+                  <p className="text-xs font-bold text-slate-800">{companyProfile.companyName || 'Madeireira'}</p>
+                  <p className="text-[10px] text-slate-500">Responsável Técnico / Emissor</p>
+                </div>
+                <div className="border-t border-slate-300 text-center pt-2">
+                  <p className="text-xs font-bold text-slate-800">{bSelectedClient?.name || bNewClientName || 'Cliente'}</p>
+                  <p className="text-[10px] text-slate-500">De Acordo do Comprador</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* ========================================================================= */}
+          {/* MODAL DE PRÉVIA DO ORÇAMENTO DE CUBAGEM DE TORAS (HUBER)                  */}
+          {/* ========================================================================= */}
+          {showTorasQuoteModal && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                className="bg-neutral-900 border border-neutral-700 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
+              >
+                {/* Modal Header */}
+                <div className="bg-neutral-950 p-4 border-b border-neutral-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-indigo-600/30 text-indigo-400 border border-indigo-500/30 flex items-center justify-center font-black">
+                      🪵
+                    </div>
+                    <div>
+                      <h3 className="font-black text-sm sm:text-base text-zinc-100 uppercase tracking-wide">
+                        Orçamento de Cubagem de Toras (Huber)
+                      </h3>
+                      <p className="text-[11px] text-zinc-400">
+                        Documento oficial com histórico de toras, metragem m³ e valor total
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handleExportTorasPDF}
+                      className="bg-indigo-600 hover:bg-indigo-500 text-white font-black py-2 px-3 rounded-lg text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow"
+                    >
+                      <FileDown className="w-3.5 h-3.5" />
+                      <span>Baixar PDF</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportTorasPNG}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 px-3 rounded-lg text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Baixar PNG</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyTorasWhatsApp}
+                      className="bg-neutral-800 hover:bg-neutral-700 text-emerald-400 border border-neutral-700 font-extrabold py-2 px-3 rounded-lg text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>WhatsApp</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowTorasQuoteModal(false)}
+                      className="bg-neutral-800 hover:bg-neutral-700 text-zinc-300 font-bold py-2 px-3 rounded-lg text-xs transition-all cursor-pointer"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                </div>
+
+                {/* Modal Document Body */}
+                <div className="p-4 sm:p-6 overflow-y-auto bg-neutral-950/60">
+                  <div className="bg-white text-slate-900 rounded-xl p-6 sm:p-8 shadow-2xl max-w-3xl mx-auto border border-slate-200 font-sans">
+                    {/* Header */}
+                    <div className="flex justify-between items-start border-b-2 border-indigo-900 pb-5 mb-6">
+                      <div>
+                        <h1 className="text-2xl font-black text-indigo-950 uppercase tracking-tight">
+                          {companyProfile.companyName || 'ORÇAFÁCIL PRO'}
+                        </h1>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mt-0.5">
+                          Gestão Florestal & Memorial de Cubagem de Toras (Huber)
+                        </p>
+                        <div className="text-[11px] text-slate-600 mt-2 space-y-0.5">
+                          {companyProfile.cnpj && <p><strong>CNPJ:</strong> {companyProfile.cnpj}</p>}
+                          {companyProfile.cpf && <p><strong>CPF:</strong> {companyProfile.cpf}</p>}
+                          {companyProfile.phone && <p><strong>Telefone / WhatsApp:</strong> {companyProfile.phone}</p>}
+                          {companyProfile.address && <p><strong>Endereço:</strong> {companyProfile.address} - {companyProfile.cityState}</p>}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="inline-block bg-indigo-950 text-indigo-100 font-mono font-black text-xs px-3 py-1.5 rounded-lg mb-2">
+                          ORÇAMENTO DE CUBAGEM
+                        </div>
+                        <p className="text-xs text-slate-500 font-bold">
+                          Data: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                        <p className="text-xs text-slate-500">Validade: 10 dias úteis</p>
+                      </div>
+                    </div>
+
+                    {/* Destinatário */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6">
+                      <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Destinatário / Cliente</div>
+                      <div className="text-base font-extrabold text-slate-900 mt-0.5">
+                        {bSelectedClient?.name || bNewClientName || 'Balcão / Cotação Florestal'}
+                      </div>
+                      <div className="text-xs text-slate-600 flex gap-4 mt-1">
+                        <span><strong>Telefone:</strong> {bSelectedClient?.phone || 'A combinar'}</span>
+                        <span><strong>Cidade:</strong> {bSelectedClient?.city || 'Local'}</span>
+                      </div>
+                    </div>
+
+                    {/* Destaque M³ e Valor Total */}
+                    {(() => {
+                      const d = parseFloat(calcDiameter) || 0;
+                      const l = parseFloat(calcLength) || 0;
+                      const curVol = parseCubicMeters(d, l);
+                      const curVal = Math.round(curVol * calcProductPrice * 100) / 100;
+                      const exportItems = calcHistory.length > 0 ? calcHistory : [{
+                        id: 'cur-tora',
+                        diameter: d,
+                        length: l,
+                        volume: curVol,
+                        price: calcProductPrice,
+                        value: curVal
+                      }];
+                      const grandTotalToras = exportItems.length;
+                      const grandTotalM3 = exportItems.reduce((acc, it) => acc + it.volume, 0);
+                      const grandTotalReais = exportItems.reduce((acc, it) => acc + it.value, 0);
+
+                      return (
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                            <div className="bg-indigo-50 border-2 border-indigo-200 rounded-xl p-4">
+                              <span className="text-[11px] font-black text-indigo-900 uppercase tracking-wide block">
+                                Metragem Total Cubada
+                              </span>
+                              <span className="text-3xl font-black font-mono text-indigo-950 block mt-1">
+                                {grandTotalM3.toFixed(3)} m³
+                              </span>
+                              <span className="text-xs text-indigo-700 font-medium block mt-1">
+                                {grandTotalToras} tora(s) cortada(s) no romaneio
+                              </span>
+                            </div>
+                            <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-4">
+                              <span className="text-[11px] font-black text-emerald-900 uppercase tracking-wide block">
+                                Valor Total Final
+                              </span>
+                              <span className="text-3xl font-black font-mono text-emerald-950 block mt-1">
+                                R$ {grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              </span>
+                              <span className="text-xs text-emerald-700 font-medium block mt-1">
+                                Preço base: R$ {calcProductPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / m³
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Tabela de Toras Cortadas */}
+                          <div className="overflow-x-auto mb-6">
+                            <table className="w-full text-left text-xs border-collapse">
+                              <thead>
+                                <tr className="bg-indigo-950 text-white font-bold">
+                                  <th className="py-2.5 px-3 rounded-tl-lg">Item</th>
+                                  <th className="py-2.5 px-3">Especificação da Tora</th>
+                                  <th className="py-2.5 px-3">Método</th>
+                                  <th className="py-2.5 px-3 text-right">Volume (m³)</th>
+                                  <th className="py-2.5 px-3 text-right">Preço/m³</th>
+                                  <th className="py-2.5 px-3 text-right rounded-tr-lg">Total (R$)</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-200">
+                                {exportItems.map((it, idx) => (
+                                  <tr key={it.id || idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                    <td className="py-2.5 px-3 font-bold text-slate-700">#{idx + 1}</td>
+                                    <td className="py-2.5 px-3 font-medium text-slate-900">
+                                      Tora Roliça Ø {it.diameter}cm × {it.length}m
+                                    </td>
+                                    <td className="py-2.5 px-3 text-slate-500 font-mono">Huber</td>
+                                    <td className="py-2.5 px-3 text-right font-bold font-mono text-indigo-900">
+                                      {it.volume.toFixed(3)} m³
+                                    </td>
+                                    <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                                      R$ {it.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    </td>
+                                    <td className="py-2.5 px-3 text-right font-bold font-mono text-emerald-700">
+                                      R$ {it.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                <tr className="bg-indigo-50 border-t-2 border-indigo-300 font-black">
+                                  <td colSpan={3} className="py-3 px-3 text-indigo-950 uppercase">
+                                    Total Geral ({grandTotalToras} toras)
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-mono text-indigo-950">
+                                    {grandTotalM3.toFixed(3)} m³
+                                  </td>
+                                  <td className="py-3 px-3"></td>
+                                  <td className="py-3 px-3 text-right font-mono text-emerald-900 text-sm">
+                                    R$ {grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        </>
+                      );
+                    })()}
+
+                    {/* Condições e Observações */}
+                    <div className="border-t border-slate-200 pt-4 text-[11px] text-slate-500 space-y-1 mb-8">
+                      <p>• <strong>Fórmula de Huber:</strong> Volume (m³) = (π × Diâmetro no meio² em cm × Comprimento em metros) / 40.000.</p>
+                      <p>• Madeira sujeita a conferência no ato do carregamento / entrega. Orçamento válido por 10 dias.</p>
+                      <p>• Documento comercial gerado automaticamente pelo OrçaFácil Pro.</p>
+                    </div>
+
+                    {/* Assinaturas */}
+                    <div className="grid grid-cols-2 gap-12 pt-4">
+                      <div className="border-t border-slate-300 text-center pt-2">
+                        <p className="text-xs font-bold text-slate-800">{companyProfile.companyName || 'Madeireira'}</p>
+                        <p className="text-[10px] text-slate-500">Responsável Técnico / Emissor</p>
+                      </div>
+                      <div className="border-t border-slate-300 text-center pt-2">
+                        <p className="text-xs font-bold text-slate-800">{bSelectedClient?.name || bNewClientName || 'Cliente'}</p>
+                        <p className="text-[10px] text-slate-500">De Acordo do Comprador</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
+          {/* ========================================================================= */}
+          {/* MODAL DE PRÉVIA DO ORÇAMENTO DE PRANCHAS E BLOCOS (M³ BLOCO)              */}
+          {/* ========================================================================= */}
+          {showPranchasQuoteModal && (
+            <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9999] flex items-center justify-center p-3 sm:p-5 overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                className="bg-neutral-900 border border-neutral-700 w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]"
+              >
+                {/* Modal Header */}
+                <div className="bg-neutral-950 p-4 border-b border-neutral-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-amber-600/30 text-amber-400 border border-amber-500/30 flex items-center justify-center font-black">
+                      📐
+                    </div>
+                    <div>
+                      <h3 className="font-black text-sm sm:text-base text-zinc-100 uppercase tracking-wide">
+                        Orçamento de Pranchas e Blocos (M³ Bloco)
+                      </h3>
+                      <p className="text-[11px] text-zinc-400">
+                        Romaneio comercial com dimensões, metragem m³ e valor total
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handleExportPranchasPDF}
+                      className="bg-amber-600 hover:bg-amber-500 text-neutral-950 font-black py-2 px-3 rounded-lg text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow"
+                    >
+                      <FileDown className="w-3.5 h-3.5" />
+                      <span>Baixar PDF</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportPranchasPNG}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white font-black py-2 px-3 rounded-lg text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow"
+                    >
+                      <Share2 className="w-3.5 h-3.5" />
+                      <span>Baixar PNG</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCopyPranchasWhatsApp}
+                      className="bg-neutral-800 hover:bg-neutral-700 text-amber-400 border border-neutral-700 font-extrabold py-2 px-3 rounded-lg text-xs flex items-center gap-1.5 transition-all cursor-pointer"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>WhatsApp</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowPranchasQuoteModal(false)}
+                      className="bg-neutral-800 hover:bg-neutral-700 text-zinc-300 font-bold py-2 px-3 rounded-lg text-xs transition-all cursor-pointer"
+                    >
+                      Fechar
+                    </button>
+                  </div>
+                </div>
+
+                {/* Modal Document Body */}
+                <div className="p-4 sm:p-6 overflow-y-auto bg-neutral-950/60">
+                  <div className="bg-white text-slate-900 rounded-xl p-6 sm:p-8 shadow-2xl max-w-3xl mx-auto border border-slate-200 font-sans">
+                    {/* Header */}
+                    <div className="flex justify-between items-start border-b-2 border-amber-900 pb-5 mb-6">
+                      <div>
+                        <h1 className="text-2xl font-black text-amber-950 uppercase tracking-tight">
+                          {companyProfile.companyName || 'ORÇAFÁCIL PRO'}
+                        </h1>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mt-0.5">
+                          Madeireira & Desdobro • Romaneio de Pranchas e Blocos
+                        </p>
+                        <div className="text-[11px] text-slate-600 mt-2 space-y-0.5">
+                          {companyProfile.cnpj && <p><strong>CNPJ:</strong> {companyProfile.cnpj}</p>}
+                          {companyProfile.cpf && <p><strong>CPF:</strong> {companyProfile.cpf}</p>}
+                          {companyProfile.phone && <p><strong>Telefone / WhatsApp:</strong> {companyProfile.phone}</p>}
+                          {companyProfile.address && <p><strong>Endereço:</strong> {companyProfile.address} - {companyProfile.cityState}</p>}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="inline-block bg-amber-950 text-amber-100 font-mono font-black text-xs px-3 py-1.5 rounded-lg mb-2">
+                          ORÇAMENTO DE PRANCHAS
+                        </div>
+                        <p className="text-xs text-slate-500 font-bold">
+                          Data: {new Date().toLocaleDateString('pt-BR')} às {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                        </p>
+                        <p className="text-xs text-slate-500">Validade: 10 dias úteis</p>
+                      </div>
+                    </div>
+
+                    {/* Destinatário */}
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6">
+                      <div className="text-[10px] font-black uppercase tracking-wider text-slate-400">Destinatário / Cliente</div>
+                      <div className="text-base font-extrabold text-slate-900 mt-0.5">
+                        {bSelectedClient?.name || bNewClientName || 'Balcão / Cotação Florestal'}
+                      </div>
+                      <div className="text-xs text-slate-600 flex gap-4 mt-1">
+                        <span><strong>Telefone:</strong> {bSelectedClient?.phone || 'A combinar'}</span>
+                        <span><strong>Cidade:</strong> {bSelectedClient?.city || 'Local'}</span>
+                      </div>
+                    </div>
+
+                    {/* Destaque M³ e Valor Total */}
+                    {(() => {
+                      const curTh = parseFloat(blockCalcThickness) || 0;
+                      const curWd = parseFloat(blockCalcWidth) || 0;
+                      const curLen = parseFloat(blockCalcLength) || 0;
+                      const curQty = parseInt(blockCalcQty, 10) || 1;
+                      const unitVol = (curTh * curWd * curLen) / 10000;
+                      const totalVol = unitVol * curQty;
+                      const totalPrice = totalVol * blockCalcPrice;
+
+                      const exportItems = blockCalcHistory.length > 0 ? blockCalcHistory : [{
+                        id: 'cur',
+                        thickness: curTh,
+                        width: curWd,
+                        length: curLen,
+                        qty: curQty,
+                        volumeUnit: unitVol,
+                        volumeTotal: totalVol,
+                        price: blockCalcPrice,
+                        value: totalPrice
+                      }];
+
+                      const grandTotalPcs = exportItems.reduce((acc, it) => acc + it.qty, 0);
+                      const grandTotalM3 = exportItems.reduce((acc, it) => acc + it.volumeTotal, 0);
+                      const grandTotalReais = exportItems.reduce((acc, it) => acc + it.value, 0);
+
+                      return (
+                        <>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                            <div className="bg-amber-50 border-2 border-amber-200 rounded-xl p-4">
+                              <span className="text-[11px] font-black text-amber-900 uppercase tracking-wide block">
+                                Metragem Total Cubada
+                              </span>
+                              <span className="text-3xl font-black font-mono text-amber-950 block mt-1">
+                                {grandTotalM3.toFixed(3)} m³
+                              </span>
+                              <span className="text-xs text-amber-700 font-medium block mt-1">
+                                {grandTotalPcs} peça(s) no romaneio
+                              </span>
+                            </div>
+                            <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-4">
+                              <span className="text-[11px] font-black text-emerald-900 uppercase tracking-wide block">
+                                Valor Total Final
+                              </span>
+                              <span className="text-3xl font-black font-mono text-emerald-950 block mt-1">
+                                R$ {grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              </span>
+                              <span className="text-xs text-emerald-700 font-medium block mt-1">
+                                Preço base: R$ {blockCalcPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} / m³
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Tabela de Pranchas e Blocos */}
+                          <div className="overflow-x-auto mb-6">
+                            <table className="w-full text-left text-xs border-collapse">
+                              <thead>
+                                <tr className="bg-amber-950 text-white font-bold">
+                                  <th className="py-2.5 px-3 rounded-tl-lg">Item</th>
+                                  <th className="py-2.5 px-3">Dimensões (Esp × Larg × Comp)</th>
+                                  <th className="py-2.5 px-3 text-center">Qtd</th>
+                                  <th className="py-2.5 px-3 text-right">Vol. Unit (m³)</th>
+                                  <th className="py-2.5 px-3 text-right">Vol. Total (m³)</th>
+                                  <th className="py-2.5 px-3 text-right">Preço/m³</th>
+                                  <th className="py-2.5 px-3 text-right rounded-tr-lg">Total (R$)</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-200">
+                                {exportItems.map((it, idx) => (
+                                  <tr key={it.id || idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                                    <td className="py-2.5 px-3 font-bold text-slate-700">#{idx + 1}</td>
+                                    <td className="py-2.5 px-3 font-medium text-slate-900">
+                                      Prancha {it.thickness}cm × {it.width}cm × {it.length}m
+                                    </td>
+                                    <td className="py-2.5 px-3 text-center font-bold text-slate-600">{it.qty}</td>
+                                    <td className="py-2.5 px-3 text-right font-mono text-slate-500">
+                                      {it.volumeUnit.toFixed(3)} m³
+                                    </td>
+                                    <td className="py-2.5 px-3 text-right font-bold font-mono text-amber-900">
+                                      {it.volumeTotal.toFixed(3)} m³
+                                    </td>
+                                    <td className="py-2.5 px-3 text-right font-mono text-slate-600">
+                                      R$ {it.price.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    </td>
+                                    <td className="py-2.5 px-3 text-right font-bold font-mono text-emerald-700">
+                                      R$ {it.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                              <tfoot>
+                                <tr className="bg-amber-50 border-t-2 border-amber-300 font-black">
+                                  <td colSpan={2} className="py-3 px-3 text-amber-950 uppercase">
+                                    Total do Romaneio
+                                  </td>
+                                  <td className="py-3 px-3 text-center text-amber-950 font-bold">{grandTotalPcs} pçs</td>
+                                  <td className="py-3 px-3"></td>
+                                  <td className="py-3 px-3 text-right font-mono text-amber-950">
+                                    {grandTotalM3.toFixed(3)} m³
+                                  </td>
+                                  <td className="py-3 px-3"></td>
+                                  <td className="py-3 px-3 text-right font-mono text-emerald-900 text-sm">
+                                    R$ {grandTotalReais.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                  </td>
+                                </tr>
+                              </tfoot>
+                            </table>
+                          </div>
+                        </>
+                      );
+                    })()}
+
+                    {/* Condições e Observações */}
+                    <div className="border-t border-slate-200 pt-4 text-[11px] text-slate-500 space-y-1 mb-8">
+                      <p>• <strong>Fórmula M³ Bloco:</strong> Volume (m³) = (Espessura cm × Largura cm × Comprimento m) / 10.000.</p>
+                      <p>• Madeira serrada sujeita a conferência no ato do carregamento. Orçamento válido por 10 dias.</p>
+                      <p>• Documento comercial gerado automaticamente pelo OrçaFácil Pro.</p>
+                    </div>
+
+                    {/* Assinaturas */}
+                    <div className="grid grid-cols-2 gap-12 pt-4">
+                      <div className="border-t border-slate-300 text-center pt-2">
+                        <p className="text-xs font-bold text-slate-800">{companyProfile.companyName || 'Madeireira'}</p>
+                        <p className="text-[10px] text-slate-500">Responsável Técnico / Emissor</p>
+                      </div>
+                      <div className="border-t border-slate-300 text-center pt-2">
+                        <p className="text-xs font-bold text-slate-800">{bSelectedClient?.name || bNewClientName || 'Cliente'}</p>
+                        <p className="text-[10px] text-slate-500">De Acordo do Comprador</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+
           {/* WHATSAPP INTELLIGENT IMPORTER MODAL OVERLAY */}
           {showWhatsappImporter && (
             <div className="absolute inset-x-0 bottom-0 top-[6%] bg-neutral-950 text-white rounded-t-3xl z-[99] p-4 flex flex-col justify-between shadow-2xl border-t border-emerald-900/40 animate-fade-in font-sans">
@@ -11678,6 +13779,55 @@ ${itemRows}
             </motion.div>
           )}
 
+          {/* CLIENT DELETE CONFIRMATION MODAL */}
+          {clientToDelete && (
+            <motion.div
+              key="client-delete-modal"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.18 }}
+              className="absolute inset-0 bg-neutral-950/85 z-[130] flex items-center justify-center p-4"
+            >
+              <div className="w-full max-w-xs bg-neutral-900 border border-neutral-800 rounded-2xl p-5 space-y-4 shadow-2xl relative select-none">
+                <div className="flex flex-col items-center text-center space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-rose-950/40 border border-rose-800/40 flex items-center justify-center text-rose-500 text-xl font-bold">
+                    ⚠️
+                  </div>
+                  <div>
+                    <h3 className="text-zinc-100 font-extrabold text-sm uppercase tracking-wider">Excluir Cadastro</h3>
+                    <p className="text-xs text-zinc-400 mt-1 leading-relaxed">
+                      Deseja mesmo remover o cliente <span className="text-emerald-400 font-bold">{clientToDelete.name}</span> permanentemente?
+                    </p>
+                    <p className="text-[10px] text-zinc-500 font-bold mt-1.5 uppercase tracking-wide">
+                      Esta ação não poderá ser desfeita e removerá os dados salvos no aparelho.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      handleDeleteClient(clientToDelete.id, clientToDelete.name);
+                      setClientToDelete(null);
+                    }}
+                    className="w-full bg-rose-600 hover:bg-rose-500 text-white font-extrabold py-3 rounded-xl text-center text-xs tracking-wider uppercase cursor-pointer transition-all active:scale-95 shadow-md"
+                  >
+                    Sim, Excluir Cliente!
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setClientToDelete(null)}
+                    className="w-full bg-neutral-800 hover:bg-neutral-750 text-zinc-300 font-extrabold py-3 rounded-xl text-center text-xs tracking-wider uppercase cursor-pointer transition-all active:scale-95 border border-neutral-750"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
           {/* PRODUCT EDIT OVERLAY MODAL */}
           {editingProduct && (
             <motion.div
@@ -11714,71 +13864,176 @@ ${itemRows}
 
                     <div className="space-y-3.5 pt-1">
                       <div>
-                        <label className="text-[10px] uppercase tracking-wider text-amber-500 font-bold block mb-1">Nome do Produto</label>
+                        <label className="text-[10px] uppercase tracking-wider text-amber-400 font-bold block mb-1">Nome do Produto *</label>
                         <input 
                           type="text" 
-                          placeholder="Ex: Pilar de Eucalipto"
+                          placeholder="Ex: Pilar de Eucalipto Tratado 14x16"
                           value={editProdName}
                           onChange={(e) => setEditProdName(e.target.value)}
-                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-150 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-sans font-bold"
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-100 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-sans font-bold"
                         />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-3.5">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         <div>
-                          <label className="text-[10px] uppercase tracking-wider text-amber-500 font-bold block mb-1">Código SKU único</label>
+                          <label className="text-[10px] uppercase tracking-wider text-amber-400 font-bold block mb-1">Código SKU único *</label>
                           <input 
                             type="text" 
                             placeholder="Ex: PIL-1416"
                             value={editProdCode}
                             onChange={(e) => setEditProdCode(e.target.value.toUpperCase())}
-                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-150 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-mono"
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-100 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-mono"
                           />
                         </div>
 
                         <div>
-                          <label className="text-[10px] uppercase tracking-wider text-amber-500 font-bold block mb-1">Tipo de Unidade</label>
+                          <label className="text-[10px] uppercase tracking-wider text-amber-400 font-bold block mb-1">Categoria</label>
+                          <select
+                            value={editProdCategory}
+                            onChange={(e) => setEditProdCategory(e.target.value)}
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-200 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-sans font-bold h-10"
+                          >
+                            <option value="serrada">Madeira Serrada</option>
+                            <option value="rolica">Tora / Roliça</option>
+                            <option value="peca">Peça / Viga / Caibro</option>
+                            <option value="projeto">Projeto Especial</option>
+                            <option value="beneficiada">Beneficiada / Deck</option>
+                            <option value="servico">Serviço / Mão de Obra</option>
+                          </select>
+                        </div>
+
+                        <div className="col-span-2 sm:col-span-1">
+                          <label className="text-[10px] uppercase tracking-wider text-amber-400 font-bold block mb-1">Tipo de Unidade *</label>
                           <select
                             value={editProdUnit}
                             onChange={(e) => setEditProdUnit(e.target.value as UnitType)}
-                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-300 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-sans font-bold h-11"
+                            className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-200 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-sans font-bold h-10"
                           >
-                            <option value="M3">M3 (Metro Cúbico Huber/Tora Roliça)</option>
-                            <option value="M3_BLOCO">M3 BLOCO (Metro Cúbico de Prancha/Bloco Retangular)</option>
-                            <option value="TABUA">TÁBUA (cm Largura * m linear)</option>
-                            <option value="PRANCHA">PRANCHA (cm Largura * m linear)</option>
+                            <option value="M3">M3 (Metro Cúbico Tora)</option>
+                            <option value="M3_BLOCO">M3 BLOCO (Prancha/Bloco)</option>
+                            <option value="TABUA">TÁBUA (cm Largura * m)</option>
+                            <option value="PRANCHA">PRANCHA (cm Largura * m)</option>
                             <option value="M">M (Metro Linear)</option>
-                            <option value="HORA">HORA (Horas de Máquina / Serviço por Hora)</option>
-                            <option value="M2">M2 (Metro Quadrado - Forro, Deck, Assoalho)</option>
-                            <option value="MIL">MIL (Milheiro - 1.000 pçs)</option>
-                            <option value="ST">ST (Metro Estéreo - Lenha/Empilhados)</option>
-                            <option value="KG">KG (Quilograma - Biomassa/Resina/Carvão)</option>
-                            <option value="TON">TON (Tonelada - Lenha/Cavaco/Madeira Bruta)</option>
-                            <option value="DIARIA">DIÁRIA (Mão de Obra / Operador / Empreitada)</option>
-                            <option value="UN">UN (Unidade)</option>
+                            <option value="HORA">HORA (Hora de Máquina)</option>
+                            <option value="M2">M2 (Metro Quadrado)</option>
+                            <option value="MIL">MIL (Milheiro)</option>
+                            <option value="ST">ST (Metro Estéreo)</option>
+                            <option value="KG">KG (Quilograma)</option>
+                            <option value="TON">TON (Tonelada)</option>
+                            <option value="DIARIA">DIÁRIA (Serviço)</option>
+                            <option value="UN">UN (Unidade Fixa)</option>
                           </select>
                         </div>
                       </div>
 
-                      <div>
-                        <label className="text-[10px] uppercase tracking-wider text-amber-500 font-bold block mb-1">Preço (R$)</label>
-                        <input 
-                          type="number" 
-                          placeholder="Ex: 2200"
-                          value={editProdPrice}
-                          onChange={(e) => setEditProdPrice(e.target.value)}
-                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-amber-500 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-mono font-bold"
-                        />
+                      {/* Dimensions section */}
+                      <div className="bg-neutral-950 p-3 rounded-xl border border-neutral-800 space-y-2">
+                        <span className="text-[9px] font-black uppercase tracking-wider text-amber-400 block">
+                          📐 Dimensões Padrão (Opcional / Referência)
+                        </span>
+                        <div className="grid grid-cols-3 gap-2">
+                          <div>
+                            <label className="text-[9px] text-zinc-400 font-bold block mb-0.5">
+                              {editProdUnit === 'M3' ? 'Diâmetro (cm)' : 'Espessura (cm)'}
+                            </label>
+                            <input
+                              type="number"
+                              step="0.5"
+                              placeholder={editProdUnit === 'M3' ? 'Ex: 25' : 'Ex: 6'}
+                              value={editProdUnit === 'M3' ? editProdDiameter : editProdThickness}
+                              onChange={(e) => {
+                                if (editProdUnit === 'M3') {
+                                  setEditProdDiameter(e.target.value);
+                                } else {
+                                  setEditProdThickness(e.target.value);
+                                }
+                              }}
+                              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-2 text-xs text-zinc-100 font-mono outline-none focus:border-amber-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[9px] text-zinc-400 font-bold block mb-0.5">Largura (cm)</label>
+                            <input
+                              type="number"
+                              step="0.5"
+                              placeholder="Ex: 15"
+                              disabled={editProdUnit === 'M3' || editProdUnit === 'M'}
+                              value={editProdWidth}
+                              onChange={(e) => setEditProdWidth(e.target.value)}
+                              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-2 text-xs text-zinc-100 font-mono outline-none focus:border-amber-500 disabled:opacity-30"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[9px] text-zinc-400 font-bold block mb-0.5">Comprimento (m)</label>
+                            <input
+                              type="number"
+                              step="0.1"
+                              placeholder="Ex: 3.0"
+                              value={editProdLength}
+                              onChange={(e) => setEditProdLength(e.target.value)}
+                              className="w-full bg-neutral-900 border border-neutral-800 rounded-lg p-2 text-xs text-zinc-100 font-mono outline-none focus:border-amber-500"
+                            />
+                          </div>
+                        </div>
                       </div>
 
                       <div>
-                        <label className="text-[10px] uppercase tracking-wider text-amber-500 font-bold block mb-1">Descrição do Material</label>
+                        <label className="text-[10px] uppercase tracking-wider text-amber-400 font-bold block mb-1">
+                          Preço Base ({editProdUnit === 'CM' ? 'R$ por cm de largura' : `R$ por ${editProdUnit.toLowerCase()}`}) *
+                        </label>
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          placeholder="Ex: 2200.00"
+                          value={editProdPrice}
+                          onChange={(e) => setEditProdPrice(e.target.value)}
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-sm text-amber-400 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-mono font-black"
+                        />
+                        <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                          <span className="text-[9px] text-zinc-500 font-bold uppercase">Margem rápida:</span>
+                          {[
+                            { label: '+5%', factor: 1.05 },
+                            { label: '+10%', factor: 1.10 },
+                            { label: '+15%', factor: 1.15 },
+                            { label: '-5%', factor: 0.95 },
+                          ].map(pill => (
+                            <button
+                              key={pill.label}
+                              type="button"
+                              onClick={() => {
+                                const current = parseFloat(editProdPrice) || 0;
+                                if (current > 0) {
+                                  setEditProdPrice((current * pill.factor).toFixed(2));
+                                }
+                              }}
+                              className="px-2 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-[10px] font-mono font-bold text-amber-400 hover:bg-neutral-850 cursor-pointer transition-colors"
+                            >
+                              {pill.label}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const current = parseFloat(editProdPrice) || 0;
+                              if (current > 0) {
+                                setEditProdPrice(Math.round(current).toFixed(2));
+                              }
+                            }}
+                            className="px-2 py-0.5 rounded bg-neutral-900 border border-neutral-800 text-[10px] font-mono font-bold text-zinc-300 hover:bg-neutral-850 cursor-pointer transition-colors"
+                          >
+                            Arredondar
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[10px] uppercase tracking-wider text-amber-400 font-bold block mb-1">Descrição Comercial</label>
                         <textarea 
-                          rows={3}
-                          placeholder="Ex: Madeira serrada tratada de eucalipto seco em estufa."
+                          rows={2.5}
+                          placeholder="Ex: Madeira serrada tratada de eucalipto seco em estufa com nós firmes."
                           value={editProdDesc}
                           onChange={(e) => setEditProdDesc(e.target.value)}
-                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-3 text-xs sm:text-sm text-zinc-150 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-sans resize-none"
+                          className="w-full bg-neutral-950 border border-neutral-800 rounded-xl p-2.5 text-xs text-zinc-200 outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 font-sans resize-none"
                         />
                       </div>
                     </div>
@@ -12061,6 +14316,15 @@ ${itemRows}
                       summaryValReais = summaryVolM3 * attachPriceM3;
                       summaryTitle = `Romaneio de Pranchas (${blockCalcHistory.length} lotes)`;
                       summaryDetails = `${blockCalcHistory.reduce((s, b) => s + b.qty, 0)} peças somadas no m³ serrado`;
+                    } else if (attachTargetSource === 'current_block') {
+                      const th = parseFloat(blockCalcThickness) || 0;
+                      const wd = parseFloat(blockCalcWidth) || 0;
+                      const len = parseFloat(blockCalcLength) || 0;
+                      const q = parseInt(blockCalcQty, 10) || 1;
+                      summaryVolM3 = ((th * wd * len) / 10000) * q;
+                      summaryValReais = summaryVolM3 * attachPriceM3;
+                      summaryTitle = `Prancha Serrada: ${q}x (${th}x${wd}cm x ${len}m)`;
+                      summaryDetails = `Cálculo de desdobro de prancha retangular no m³`;
                     }
 
                     return (
@@ -12296,10 +14560,23 @@ ${itemRows}
           )}
         </AnimatePresence>
 
+        {/* MODAL SELETOR DE MODO (FÁCIL VS COMPLETO) */}
+        <ModeSelectorModal
+          isOpen={showModeModal}
+          onClose={() => setShowModeModal(false)}
+          currentMode={seniorMode ? 'easy' : 'complete'}
+          onSelectMode={(mode) => {
+            const isEasy = mode === 'easy';
+            setSeniorMode(isEasy);
+            onAddLog(isEasy ? 'Modo Fácil selecionado pelo usuário.' : 'Modo Completo (Serraria Pro) selecionado pelo usuário.');
+            triggerNotification(isEasy ? '✨ Modo Fácil Ativado' : '🏭 Modo Completo Ativado');
+          }}
+        />
+
         {/* BOTTOM NAVIGATION BAR */}
         <div className="h-18 border-t border-neutral-800 bg-neutral-950 flex justify-around items-center px-3 pb-1 shrink-0 z-10 text-xs font-sans">
           {[
-            { id: 'dashboard', label: 'Início', icon: LayoutDashboard },
+            { id: 'dashboard', label: seniorMode ? 'Início' : 'Gestão Pro', icon: seniorMode ? LayoutDashboard : Factory },
             { id: 'budgets', label: 'Orçamentos', icon: Receipt },
             { id: 'calculators', label: 'Projetos', icon: DraftingCompass },
             { id: 'clients', label: 'Clientes', icon: Users2 },
