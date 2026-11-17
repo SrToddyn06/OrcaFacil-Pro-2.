@@ -299,7 +299,7 @@ export default function LandingHero({ logs, onClearLogs, children }: LandingHero
               </div>
 
               <div className="bg-neutral-900 border border-neutral-800 p-3 rounded-lg text-xs leading-relaxed text-zinc-400">
-                💡 <strong>Análise de Alterações (Auditagem):</strong> O processador do aplicativo calcula o hash das linhas de forma incremental. Se o preço antigo sofrer desconto ou acréscimo, ele documenta o delta, permitindo ao usuário mesclar em novos lotes de venda sem perder seus produtos customizados.
+                <strong>Análise de Alterações (Auditagem):</strong> O processador do aplicativo calcula o hash das linhas de forma incremental. Se o preço antigo sofrer desconto ou acréscimo, ele documenta o delta, permitindo ao usuário mesclar em novos lotes de venda sem perder seus produtos customizados.
               </div>
             </div>
 

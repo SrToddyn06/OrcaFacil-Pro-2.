@@ -16,7 +16,8 @@ export const INITIAL_PRODUCTS: Product[] = [
   { id: 'p12', code: 'RPI-0402', name: 'Ripá de Eucalipto 4x2', price: 2.50, unit: 'M', description: 'Ripa fina de eucalipto para acabamento' },
   { id: 'p13', code: 'TAB-EUC', name: 'Tábua de Eucalipto (Preço por cm)', price: 0.80, unit: 'TABUA', description: 'Cálculo dinâmico: Largura (cm) * R$ 0,80/cm * Comprimento (m)' },
   { id: 'p14', code: 'PRA-EUC', name: 'Prancha de Eucalipto (Preço por cm)', price: 2.00, unit: 'PRANCHA', description: 'Cálculo dinâmico: Largura (cm) * R$ 2,00/cm * Comprimento (m)' },
-  { id: 'p15', code: 'TOR-EUC', name: 'Tora de Eucalipto Bruta (M³)', price: 450.00, unit: 'M3', description: 'Tora inteira para serrar. Requer cálculo de m³ por Huber' }
+  { id: 'p15', code: 'TOR-EUC', name: 'Tora de Eucalipto Bruta (M³)', price: 450.00, unit: 'M3', description: 'Tora inteira para serrar. Requer cálculo de m³ por Huber' },
+  { id: 'p16', code: 'EST-EUC', name: 'Estacas de Eucalipto (Mourão)', price: 28.80, unit: 'M', description: 'Estacas e mourões tratados. Cálculo interno: bitola (12x12, 12x15, 13x16) x comprimento' }
 ];
 
 // Pre-configured list of clients

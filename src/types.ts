@@ -16,6 +16,16 @@ export interface Client {
 
 export type UnitType = 'UN' | 'M' | 'M3' | 'TABUA' | 'PRANCHA' | 'HORA' | 'M2' | 'KG' | 'TON' | 'DIARIA' | 'M3_BLOCO' | 'MIL' | 'ST';
 
+export type WoodCategoryType = 
+  | 'all' 
+  | 'pecas'        // Peças, Pilares, Caibros, Vigas
+  | 'reguas'       // Réguas, Mourões, Guias
+  | 'ripas'        // Ripas, Ripões, Sarrafos
+  | 'tabuas'       // Tábuas, Pranchas, Decks, Assoalhos
+  | 'toras'        // Toras Roliças Huber (m³)
+  | 'porteiras'    // Porteiras, Mesas, Móveis Rústicos
+  | 'servicos';    // Desdobro de toras, Cortes, Serviços por hora/m²
+
 export interface Product {
   id: string;
   code: string;
@@ -63,6 +73,11 @@ export interface Budget {
   gpsCoords?: string;
   woodPhoto?: string;
   parentVersionId?: string; // For tracing duplicate/version history
+  stockDeducted?: boolean; // Controla baixa automática no estoque ao marcar como Vendido
+  paymentMethod?: 'Pix' | 'Dinheiro' | 'Cartão' | 'Boleto / Prazo' | 'Transferência';
+  paymentStatus?: 'Em Aberto' | 'Sinal Pago' | 'Quitado';
+  amountPaid?: number;
+  clientSignature?: string; // Assinatura digital capturada na tela (DataURL PNG)
   updateHistory: {
     timestamp: string;
     action: string;

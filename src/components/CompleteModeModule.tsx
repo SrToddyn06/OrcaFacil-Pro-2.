@@ -28,6 +28,11 @@ import { Budget, Client, YardBatch, WoodInventoryItem } from '../types';
 interface CompleteModeModuleProps {
   budgets: Budget[];
   clients: Client[];
+  batches?: YardBatch[];
+  onUpdateBatches?: React.Dispatch<React.SetStateAction<YardBatch[]>>;
+  inventory?: WoodInventoryItem[];
+  onUpdateInventory?: React.Dispatch<React.SetStateAction<WoodInventoryItem[]>>;
+  onApplyMarkupPrice?: (pricePerM3: number) => void;
   onStartNewBudget: () => void;
   onNavigateToTab: (tabId: string) => void;
   onAddLog: (msg: string) => void;
@@ -35,7 +40,7 @@ interface CompleteModeModuleProps {
 }
 
 // Lotes de pátio iniciais realistas para a serraria
-const INITIAL_BATCHES: YardBatch[] = [
+export const INITIAL_BATCHES: YardBatch[] = [
   {
     id: 'batch-1',
     batchNumber: 'LOTE-2026-08',
@@ -84,7 +89,7 @@ const INITIAL_BATCHES: YardBatch[] = [
 ];
 
 // Estoque inicial consolidado de madeira
-const INITIAL_INVENTORY: WoodInventoryItem[] = [
+export const INITIAL_INVENTORY: WoodInventoryItem[] = [
   {
     id: 'inv-1',
     species: 'Ipê Tabaco',
@@ -145,6 +150,11 @@ const INITIAL_INVENTORY: WoodInventoryItem[] = [
 export const CompleteModeModule: React.FC<CompleteModeModuleProps> = ({
   budgets,
   clients,
+  batches: controlledBatches,
+  onUpdateBatches,
+  inventory: controlledInventory,
+  onUpdateInventory,
+  onApplyMarkupPrice,
   onStartNewBudget,
   onNavigateToTab,
   onAddLog,
@@ -152,8 +162,8 @@ export const CompleteModeModule: React.FC<CompleteModeModuleProps> = ({
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<'dashboard' | 'rendimento' | 'lotes' | 'precificacao' | 'estoque'>('dashboard');
 
-  // Estado de Lotes de Pátio com persistência local
-  const [batches, setBatches] = useState<YardBatch[]>(() => {
+  // Estado interno fallback caso o componente seja montado isoladamente
+  const [internalBatches, setInternalBatches] = useState<YardBatch[]>(() => {
     try {
       const saved = localStorage.getItem('sawmill_yard_batches');
       return saved ? JSON.parse(saved) : INITIAL_BATCHES;
@@ -162,8 +172,7 @@ export const CompleteModeModule: React.FC<CompleteModeModuleProps> = ({
     }
   });
 
-  // Estado de Estoque Físico
-  const [inventory, setInventory] = useState<WoodInventoryItem[]>(() => {
+  const [internalInventory, setInternalInventory] = useState<WoodInventoryItem[]>(() => {
     try {
       const saved = localStorage.getItem('sawmill_wood_inventory');
       return saved ? JSON.parse(saved) : INITIAL_INVENTORY;
@@ -171,6 +180,11 @@ export const CompleteModeModule: React.FC<CompleteModeModuleProps> = ({
       return INITIAL_INVENTORY;
     }
   });
+
+  const batches = controlledBatches ?? internalBatches;
+  const setBatches = onUpdateBatches ?? setInternalBatches;
+  const inventory = controlledInventory ?? internalInventory;
+  const setInventory = onUpdateInventory ?? setInternalInventory;
 
   // Modal para adicionar novo lote
   const [showNewBatchModal, setShowNewBatchModal] = useState(false);
@@ -204,22 +218,24 @@ export const CompleteModeModule: React.FC<CompleteModeModuleProps> = ({
   const [markupTaxRate, setMarkupTaxRate] = useState<number>(6.0); // Simples Nacional 6%
   const [markupProfitMargin, setMarkupProfitMargin] = useState<number>(35.0); // Margem líquida 35%
 
-  // Salvar lotes e estoque no localStorage
+  // Salvar lotes e estoque apenas quando em modo interno
   useEffect(() => {
+    if (controlledBatches) return;
     try {
-      localStorage.setItem('sawmill_yard_batches', JSON.stringify(batches));
+      localStorage.setItem('sawmill_yard_batches', JSON.stringify(internalBatches));
     } catch (e) {
       console.error(e);
     }
-  }, [batches]);
+  }, [internalBatches, controlledBatches]);
 
   useEffect(() => {
+    if (controlledInventory) return;
     try {
-      localStorage.setItem('sawmill_wood_inventory', JSON.stringify(inventory));
+      localStorage.setItem('sawmill_wood_inventory', JSON.stringify(internalInventory));
     } catch (e) {
       console.error(e);
     }
-  }, [inventory]);
+  }, [internalInventory, controlledInventory]);
 
   // Cálculos do Dashboard Executivo
   const totalFaturado = budgets
@@ -987,12 +1003,17 @@ export const CompleteModeModule: React.FC<CompleteModeModuleProps> = ({
                 <button
                   type="button"
                   onClick={() => {
-                    onAddLog(`Preço de referência de R$ ${suggestedPriceM3.toFixed(2)}/m³ calculado com sucesso.`);
-                    onTriggerNotification(`💡 Preço sugerido: R$ ${suggestedPriceM3.toFixed(2)}/m³`);
+                    const roundedPrice = Math.round(suggestedPriceM3 * 100) / 100;
+                    if (onApplyMarkupPrice) {
+                      onApplyMarkupPrice(roundedPrice);
+                    } else {
+                      onAddLog(`Preço de referência de R$ ${roundedPrice.toFixed(2)}/m³ calculado com sucesso.`);
+                      onTriggerNotification(`Preço sugerido: R$ ${roundedPrice.toFixed(2)}/m³`);
+                    }
                   }}
                   className="w-full bg-emerald-600 hover:bg-emerald-500 text-neutral-950 font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wider transition-all cursor-pointer shadow-md active:scale-95"
                 >
-                  Usar este Preço como Base Comercial
+                  Aplicar Preço nas Calculadoras & Catálogo m³
                 </button>
               </div>
             </div>
